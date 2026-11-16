@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Standortanalyse – Schritt 5: Nutzungen (v2)</title>
+<!-- Die Kartenbibliothek "MapLibre" wird weiter unten per Skript geladen,
+     mit Ersatzquellen, falls ein Server nicht erreichbar ist. -->
+<style>
+  /* ====== FARBEN & GRUNDLAYOUT (hier könnt ihr später Werte ändern) ====== */
+  :root {
+    --hintergrund: #ffffff;
+    --text: #2b2b2b;
+    --text-hell: #7a7a7a;
+    --linie: #e3e3e3;
+    --akzent: #4a4a4a;
+    --panel-breite: 320px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--text); background: var(--hintergrund); }
+  #app { display: flex; height: 100%; position: relative; }
+
+  /* ====== SEITENLEISTE ====== */
+  #panel {
+    width: var(--panel-breite); flex-shrink: 0; height: 100%; overflow-y: auto;
+    border-right: 1px solid var(--linie); padding: 20px; background: #fff; z-index: 10;
+    transition: margin-left .25s;
+  }
+  #panel.zu { margin-left: calc(-1 * var(--panel-breite)); }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 2px; letter-spacing: .2px; }
+  .untertitel { font-size: 12px; color: var(--text-hell); margin-bottom: 22px; }
+  .abschnitt { margin-bottom: 22px; }
+  .abschnitt-titel { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-hell); margin-bottom: 8px; }
+
+  input[type=text], select {
+    width: 100%; padding: 10px 12px; font-size: 15px; border: 1px solid var(--linie);
+    border-radius: 6px; background: #fff; color: var(--text); outline: none;
+  }
+  input[type=text]:focus, select:focus { border-color: #b5b5b5; }
+
+  #treffer { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid var(--linie); border-radius: 6px; display: none; max-height: 240px; overflow-y: auto; }
+  #treffer li { padding: 9px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #f1f1f1; }
+  #treffer li:last-child { border-bottom: none; }
+  #treffer li:hover { background: #f6f6f6; }
+  #treffer .klein { color: var(--text-hell); font-size: 11px; display: block; }
+
+  .massstab-anzeige { font-size: 13px; color: var(--text-hell); margin-top: 6px; }
+  .massstab-anzeige b { color: var(--text); font-weight: 600; }
+
+  button.haupt {
+    width: 100%; padding: 12px; font-size: 14px; border-radius: 6px; border: none;
+    background: var(--akzent); color: #fff; cursor: pointer;
+  }
+  button.haupt:disabled { background: #d4d4d4; cursor: not-allowed; }
+  .hinweis { font-size: 12px; color: var(--text-hell); margin-top: 6px; line-height: 1.4; }
+
+  #status { font-size: 12px; line-height: 1.6; border: 1px solid var(--linie); border-radius: 6px; padding: 10px 12px; }
+  #status .ok { color: #4f8a5b; }
+  #status .fehler { color: #b5524a; }
+  #status .warte { color: var(--text-hell); }
+  #ladeprotokoll { margin-top: 6px; font-size: 11px; color: var(--text-hell); line-height: 1.5; }
+
+  .platzhalter { border: 1px dashed var(--linie); border-radius: 6px; padding: 14px; font-size: 12px; color: var(--text-hell); text-align: center; }
+
+  /* ====== SCHALTER (Kippschalter) ====== */
+  .schalter { position: relative; width: 34px; height: 20px; flex-shrink: 0; }
+  .schalter input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .schalter span {
+    position: absolute; inset: 0; background: #d9d9d9; border-radius: 20px; cursor: pointer; transition: background .2s;
+  }
+  .schalter span::before {
+    content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .schalter input:checked + span { background: var(--akzent); }
+  .schalter input:checked + span::before { transform: translateX(14px); }
+  .schalter.teilweise span { background: #a8a8a8; }
+  .schalter.teilweise span::before { transform: translateX(7px); }
+
+  /* ====== LAYER-MENÜ ====== */
+  .zeile { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  .zeile .name { flex: 1; cursor: pointer; }
+  .gruppe { border: 1px solid var(--linie); border-radius: 6px; margin-bottom: 8px; }
+  .gruppe-kopf { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; user-select: none; }
+  .gruppe-kopf .pfeil { width: 12px; font-size: 10px; color: var(--text-hell); transition: transform .2s; }
+  .gruppe.offen .pfeil { transform: rotate(90deg); }
+  .gruppe-kopf .gname { flex: 1; font-size: 14px; font-weight: 600; }
+  .gruppe-inhalt { display: none; padding: 0 12px 8px 32px; }
+  .gruppe.offen .gruppe-inhalt { display: block; }
+  .anz { font-size: 11px; color: var(--text-hell); min-width: 18px; text-align: right; }
+  .untergruppe-titel { font-size: 11px; color: var(--text-hell); text-transform: uppercase; letter-spacing: .8px; margin: 8px 0 2px; }
+
+  /* Legenden-Symbole: Fläche, Linie, Punkt */
+  .sym { flex-shrink: 0; display: inline-block; }
+  .sym.flaeche { width: 14px; height: 14px; border-radius: 2px; }
+  .sym.linie   { width: 18px; height: 4px; border-radius: 2px; }
+  .sym.punkt   { width: 10px; height: 10px; border-radius: 50%; margin: 0 2px; }
+
+  /* ====== LEGENDE AUF DER KARTE ====== */
+  #legende {
+    position: absolute; right: 12px; bottom: 34px; z-index: 15; background: rgba(255,255,255,.96);
+    border: 1px solid var(--linie); border-radius: 6px; padding: 12px 14px; min-width: 180px;
+    max-height: 60%; overflow-y: auto; font-size: 12px; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.05);
+  }
+  #legende h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-hell); font-weight: 600; }
+  #legende .lg-gruppe { font-weight: 600; margin: 8px 0 3px; }
+  #legende .lg-zeile { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+
+  /* ====== KARTE ====== */
+  #karte { flex: 1; height: 100%; background: #fff; }
+
+  /* Knopf zum Ein-/Ausklappen der Seitenleiste (v. a. für Tablet) */
+  #klappknopf {
+    position: absolute; top: 12px; left: calc(var(--panel-breite) + 12px); z-index: 20;
+    background: #fff; border: 1px solid var(--linie); border-radius: 6px; padding: 7px 10px;
+    font-size: 13px; cursor: pointer; transition: left .25s;
+  }
+  #panel.zu ~ #klappknopf { left: 12px; }
+
+  /* Kleine Meldung unten in der Mitte */
+  #meldung {
+    position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 30;
+    background: rgba(43,43,43,.9); color: #fff; font-size: 13px; padding: 9px 14px; border-radius: 6px;
+    display: none; max-width: 80%; text-align: center;
+  }
+
+  /* Tablet / schmale Bildschirme: Leiste liegt über der Karte */
+  @media (max-width: 800px) {
+    #panel { position: absolute; left: 0; top: 0; box-shadow: 2px 0 12px rgba(0,0,0,.08); }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ===================== SEITENLEISTE ===================== -->
+  <aside id="panel">
+    <h1>Standortanalyse</h1>
+    <div class="untertitel">Arbeitstitel · Daten: OpenStreetMap</div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Ort suchen</div>
+      <input type="text" id="suche" placeholder="z. B. Oldenburg, Bahnhofstraße …" autocomplete="off">
+      <ul id="treffer"></ul>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Maßstab</div>
+      <select id="massstab">
+        <option value="">– frei / Übersicht –</option>
+        <option value="500">1 : 500</option>
+        <option value="1000">1 : 1.000</option>
+        <option value="2000">1 : 2.000</option>
+        <option value="2500">1 : 2.500</option>
+        <option value="5000">1 : 5.000</option>
+      </select>
+      <div class="massstab-anzeige">Aktuell ca. <b id="massstab-jetzt">–</b></div>
+    </div>
+
+    <div class="abschnitt">
+      <button class="haupt" id="laden" disabled>Daten für diesen Ausschnitt laden</button>
+      <div class="hinweis" id="laden-hinweis">Zum Laden auf 1 : 5.000 oder näher heranzoomen.</div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Grundkarte</div>
+      <div class="zeile">
+        <label class="name" for="sw-strassennamen">Straßennamen</label>
+        <label class="schalter"><input type="checkbox" id="sw-strassennamen" checked><span></span></label>
+      </div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Layer</div>
+      <div id="layermenue"></div>
+      <div class="hinweis">Die Zahl neben jedem Layer zeigt, wie viele Objekte im geladenen Ausschnitt gefunden wurden.</div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Status (zur Fehlersuche)</div>
+      <div id="status">
+        <div id="st-datei" class="warte">• Datei: wird geprüft …</div>
+        <div id="st-lib" class="warte">• Kartenbibliothek: lädt …</div>
+        <div id="st-kacheln" class="warte">• Grundkarte: wartet …</div>
+        <div id="st-suche" class="warte">• Suche: noch nicht benutzt</div>
+        <div id="st-daten" class="warte">• Daten: noch nicht geladen</div>
+        <div id="ladeprotokoll"></div>
+      </div>
+    </div>
+  </aside>
+
+  <button id="klappknopf" title="Seitenleiste ein-/ausblenden">☰</button>
+
+  <!-- ===================== KARTE ===================== -->
+  <div id="karte"></div>
+  <div id="legende"></div>
+  <div id="meldung"></div>
+</div>
+
+<script>
+/* =========================================================
+   STATUSANZEIGE
+   ========================================================= */
+function status(id, text, art) {
+  const el = document.getElementById(id);
+  el.textContent = '• ' + text;
+  el.className = art;
+}
+
+(function () {
+  const p = location.protocol;
+  if (p === 'file:') status('st-datei', 'Datei: lokal im Browser geöffnet ✓', 'ok');
+  else if (p === 'https:' || p === 'http:') status('st-datei', 'Datei: über eine Webadresse geöffnet ✓', 'ok');
+  else status('st-datei', 'Datei: läuft in einer Vorschau (' + p + ') – bitte herunterladen und im Browser öffnen!', 'fehler');
+})();
+
+/* =========================================================
+   KARTENBIBLIOTHEK "MapLibre" LADEN (mit Ersatzquellen)
+   ========================================================= */
+const BIBLIOTHEK_QUELLEN = [
+  { name: 'unpkg',    css: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',              js: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js' },
+  { name: 'jsdelivr', css: 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css',   js: 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js' },
+  { name: 'cdnjs',    css: 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css', js: 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js' }
+];
+
+function ladeBibliothek(i) {
+  if (i >= BIBLIOTHEK_QUELLEN.length) {
+    status('st-lib', 'Kartenbibliothek: von keinem Server ladbar – Internet/Firewall prüfen', 'fehler');
+    return;
+  }
+  const q = BIBLIOTHEK_QUELLEN[i];
+  const css = document.createElement('link');
+  css.rel = 'stylesheet'; css.href = q.css;
+  document.head.appendChild(css);
+  const js = document.createElement('script');
+  js.src = q.js;
+  js.onload = () => { status('st-lib', 'Kartenbibliothek: geladen (' + q.name + ') ✓', 'ok'); start(); };
+  js.onerror = () => { css.remove(); ladeBibliothek(i + 1); };
+  document.head.appendChild(js);
+}
+ladeBibliothek(0);
+
+/* =========================================================
+   AB HIER LÄUFT DIE APP (startet, sobald MapLibre da ist)
+   ========================================================= */
+function start() {
+
+/* ---------- Einstellungen ---------- */
+const START_MITTE = [10.45, 51.16];   // Mitte Deutschlands (Länge, Breite)
+const START_ZOOM  = 5;
+const MAX_MASSSTAB_FUER_DATEN = 5000; // Daten nur bis 1:5.000 laden
+
+/* Bildschirm-Annahme: 96 Pixel pro Zoll -> 1 Pixel = 0,2646 mm.
+   Daher ist der Maßstab am Bildschirm immer nur ungefähr. */
+const METER_PRO_PIXEL_BILDSCHIRM = 0.0254 / 96;
+
+/* ---------- Grundkarten ----------
+   1. Wahl: OpenFreeMap "Positron" – kostenlos, ohne Schlüssel, Vektorkarte (scharf in jedem Maßstab)
+   2. Wahl (Notfall): Esri "Light Gray" – Rasterbilder, bei 1:500 etwas unscharf */
+const GRUNDKARTEN = [
+  { name: 'OpenFreeMap Positron', stil: 'https://tiles.openfreemap.org/styles/positron' },
+  { name: 'Esri Light Gray (Notfall)', stil: {
+      version: 8,
+      sources: { esri: { type: 'raster', tileSize: 256, maxzoom: 16,
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'],
+        attribution: 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap-Mitwirkende' } },
+      layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
+  } }
+];
+let grundkartenNr = 0;
+let grundkarteOk = false;
+
+/* ---------- Karte anlegen ---------- */
+status('st-kacheln', 'Grundkarte: lädt (' + GRUNDKARTEN[0].name + ') …', 'warte');
+const karte = new maplibregl.Map({
+  container: 'karte',
+  style: GRUNDKARTEN[0].stil,
+  center: START_MITTE,
+  zoom: START_ZOOM,
+  minZoom: 4,
+  maxZoom: 21,
+  attributionControl: { compact: false },
+  preserveDrawingBuffer: true   // wird später für den PDF-Export gebraucht
+});
+karte.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+karte.addControl(new maplibregl.ScaleControl({ maxWidth: 160, unit: 'metric' }), 'bottom-left');
+karte.dragRotate.disable();
+karte.touchZoomRotate.disableRotation();
+
+/* ---------- Grundkarte an euer Farbkonzept anpassen ---------- */
+const GRUNDKARTE_FARBEN = {
+  hintergrund: '#ffffff',
+  wasser:      '#dde7ee',   // zartes Graublau
+  wasserlinie: '#c9d8e2'
+};
+function grundkarteAnpassen() {
+  const stil = karte.getStyle();
+  if (!stil || !stil.layers) return;
+  stil.layers.forEach(l => {
+    try {
+      if (l.type === 'background') karte.setPaintProperty(l.id, 'background-color', GRUNDKARTE_FARBEN.hintergrund);
+      if (l['source-layer'] === 'water' && l.type === 'fill') karte.setPaintProperty(l.id, 'fill-color', GRUNDKARTE_FARBEN.wasser);
+      if (l['source-layer'] === 'waterway' && l.type === 'line') karte.setPaintProperty(l.id, 'line-color', GRUNDKARTE_FARBEN.wasserlinie);
+    } catch (e) {}
+  });
+  strassennamenZeigen(document.getElementById('sw-strassennamen').checked);
+}
+karte.on('style.load', grundkarteAnpassen);
+
+// Straßennamen ein-/ausblenden (alle Beschriftungen aus der Ebene "transportation_name")
+function strassennamenZeigen(an) {
+  const stil = karte.getStyle();
+  if (!stil || !stil.layers) return;
+  stil.layers.forEach(l => {
+    if (l.type === 'symbol' && l['source-layer'] === 'transportation_name') {
+      karte.setLayoutProperty(l.id, 'visibility', an ? 'visible' : 'none');
+    }
+  });
+}
+document.getElementById('sw-strassennamen').addEventListener('change', e => strassennamenZeigen(e.target.checked));
+
+/* =========================================================
+   LAYER-KONZEPT  (hier stehen alle Layer mit Namen und Farbe)
+   form: 'flaeche' | 'linie' | 'punkt'  -> bestimmt das Legendensymbol
+   ========================================================= */
+// Hilfslisten für die Regeln
+const NEBENGLEISE = ['siding', 'yard', 'spur', 'crossover'];
+const RADSPUR = ['lane', 'track', 'shared_lane', 'opposite_lane', 'opposite_track'];
+const WOHNGEBAEUDE = ['residential', 'apartments', 'house', 'detached', 'semidetached_house', 'terrace', 'dormitory', 'bungalow', 'farm'];
+
+/* Viele Gebäude sind in OSM nur als "Gebäude" ohne Nutzung eingetragen (building=yes).
+   true = solche Gebäude gelten als Wohngebäude, wenn sie in einem Wohngebiet liegen und keine andere Nutzung haben.
+   false = nur ausdrücklich als Wohnhaus eingetragene Gebäude zählen. */
+const WOHNEN_AUS_WOHNGEBIET = true;
+
+/* Hilfsdaten, die nicht direkt angezeigt werden: alle Gebäude und Wohngebiete */
+const HILFSREGELN = [
+  { typ: 'relation', tags: { building: true, type: ['multipolygon'] } },
+  { typ: 'way', tags: { 'building:use': ['residential'] } },
+  { tags: { landuse: ['residential'] } }
+];
+/* Alle übrigen Gebäude werden nur als Umriss geladen ("skel" = ohne Merkmale) – das spart viel Ladezeit */
+const GEBAEUDE_UMRISSE = [
+  { abfrage: 'way["building"="yes"]', merkmal: { building: 'yes' } },
+  { abfrage: 'way["building"]["building"!="yes"]', merkmal: { building: 'sonstige' } }
+];
+
+const LAYER_GRUPPEN = [
+  { id: 'mobilitaet', name: 'Mobilität', untergruppen: [
+    { name: 'Bus', layer: [
+      { id: 'bus_linien',     name: 'Buslinien',           farbe: '#e3c46b', form: 'linie', breite: 3, versatz: 2,
+        regeln: [ { typ: 'relation', tags: { type: ['route'], route: ['bus', 'trolleybus'] }, zuschneiden: true } ] },
+      { id: 'bus_halt',       name: 'Bushaltestellen',     farbe: '#c9a43a', form: 'punkt', radius: 6,
+        regeln: [ { typ: 'node', tags: { highway: ['bus_stop'] } } ] } ]},
+    { name: 'Bahn', layer: [
+      { id: 'bahn_fern',      name: 'Fern- & Regionalbahn', farbe: '#9e3128', form: 'linie', breite: 3.5,
+        regeln: [ { typ: 'way', tags: { railway: ['rail'] }, ohne: { service: NEBENGLEISE, usage: ['industrial', 'military', 'tourism'] } } ] },
+      { id: 'bahn_s',         name: 'S-Bahn',               farbe: '#c4473a', form: 'linie', breite: 3, versatz: 1,
+        regeln: [ { typ: 'relation', tags: { type: ['route'], route: ['light_rail'] }, zuschneiden: true },
+                  { typ: 'relation', tags: { type: ['route'], route: ['train'] }, muster: { ref: '^S ?[0-9]' }, zuschneiden: true },
+                  { typ: 'way', tags: { railway: ['light_rail'] }, ohne: { service: NEBENGLEISE } } ] },
+      { id: 'bahn_u',         name: 'U-Bahn',               farbe: '#d26a55', form: 'linie', breite: 3,
+        regeln: [ { typ: 'way', tags: { railway: ['subway'] }, ohne: { service: NEBENGLEISE } } ] },
+      { id: 'bahn_tram',      name: 'Straßenbahn',          farbe: '#de9378', form: 'linie', breite: 2.5,
+        regeln: [ { typ: 'way', tags: { railway: ['tram'] }, ohne: { service: NEBENGLEISE } } ] },
+      { id: 'bahn_halt',      name: 'Bahnhöfe & Haltestellen', farbe: '#7f2820', form: 'punkt', radius: 7,
+        regeln: [ { typ: 'node', tags: { railway: ['station', 'halt', 'tram_stop'] } } ] } ]},
+    { name: 'Auto', layer: [
+      { id: 'auto_haupt',     name: 'Hauptverkehrsstraßen', farbe: '#6a8caf', form: 'linie', breite: 4,
+        regeln: [ { typ: 'way', tags: { highway: ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link'] } } ] },
+      { id: 'auto_parken',    name: 'Parkplätze',           farbe: '#a9bfd6', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { amenity: ['parking'] }, ohne: { parking: ['underground'] } } ] } ]},
+    { name: 'Fuß & Rad', layer: [
+      { id: 'radweg',         name: 'Radwege',              farbe: '#cf7fb0', form: 'linie', breite: 2.2, versatz: 1,
+        regeln: [ { typ: 'way', tags: { highway: ['cycleway'] } },
+                  { typ: 'way', tags: { highway: ['path', 'footway'], bicycle: ['designated'] } },
+                  { typ: 'way', tags: { highway: true, bicycle_road: ['yes'] } },
+                  { typ: 'way', tags: { highway: true, cycleway: RADSPUR } },
+                  { typ: 'way', tags: { highway: true, 'cycleway:both': RADSPUR } },
+                  { typ: 'way', tags: { highway: true, 'cycleway:right': RADSPUR } },
+                  { typ: 'way', tags: { highway: true, 'cycleway:left': RADSPUR } } ] },
+      { id: 'fussweg',        name: 'Fußwege',              farbe: '#efc6df', form: 'linie', breite: 1.6,
+        regeln: [ { typ: 'way', tags: { highway: ['footway', 'pedestrian', 'path', 'steps', 'living_street'] }, ohne: { area: ['yes'] } } ] } ]}
+  ]},
+  { id: 'gruen', name: 'Grün', untergruppen: [
+    /* "regeln" = welche OpenStreetMap-Merkmale (Tags) zu diesem Layer gehören.
+       tags: {schlüssel: [werte]} müssen passen, ohne: {schlüssel: [werte]} dürfen NICHT passen.
+       Die Reihenfolge zählt: ein Objekt landet im ersten Layer, dessen Regel passt. */
+    { name: null, layer: [
+      { id: 'spielplaetze',      name: 'Spielplätze',             farbe: '#bccb72', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { leisure: ['playground'] } } ] },
+      { id: 'gruen_privat',      name: 'Private Grünflächen',     farbe: '#cbd8c2', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { leisure: ['garden'], access: ['private', 'no', 'customers'] } },
+                  { tags: { leisure: ['garden'], 'garden:type': ['residential'] } },
+                  { tags: { landuse: ['allotments'] } } ] },
+      { id: 'gruen_oeffentlich', name: 'Öffentliche Grünflächen', farbe: '#94b98a', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { leisure: ['park', 'garden', 'common', 'dog_park'] } },
+                  { tags: { landuse: ['recreation_ground', 'village_green', 'grass', 'meadow', 'cemetery', 'forest'] } },
+                  { tags: { natural: ['wood', 'grassland', 'scrub', 'heath'] } } ] },
+      { id: 'aufenthalt',        name: 'Aufenthaltsflächen',      farbe: '#93c2ae', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { place: ['square'] } },
+                  { tags: { highway: ['pedestrian'], area: ['yes'] } },
+                  { tags: { leisure: ['picnic_site', 'outdoor_seating'] } },
+                  { typ: 'node', tags: { amenity: ['bench'] } } ] },
+      { id: 'baeume',            name: 'Bäume',                   farbe: '#557d4f', form: 'punkt', ebene: 'oben', radius: 8,
+        regeln: [ { typ: 'node', tags: { natural: ['tree'] } },
+                  { typ: 'way',  tags: { natural: ['tree_row'] } } ] } ]}
+  ]},
+  /* Nutzungen: "nutzung: true" heißt, das Objekt (meist ein Punkt) färbt das Gebäude ein, in dem es liegt.
+     Liegt es in keinem Gebäude, erscheint es als Punkt. */
+  { id: 'nutzungen', name: 'Nutzungen', untergruppen: [
+    { name: 'Gesundheit', layer: [
+      { id: 'krankenhaus',    name: 'Krankenhäuser',   farbe: '#a9383d', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['hospital'] } } ] },
+      { id: 'arzt_zahn',      name: 'Zahnärzte',       farbe: '#f5ccc6', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['dentist'] } }, { tags: { healthcare: ['dentist'] } } ] },
+      { id: 'arzt_fach',      name: 'Fachärzte',       farbe: '#ec9d93', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['doctors'], 'healthcare:speciality': true }, ohne: { 'healthcare:speciality': ['general', 'family', 'general_practice', 'general_medicine'] } },
+                  { tags: { amenity: ['clinic'] } } ] },
+      { id: 'arzt_allgemein', name: 'Allgemeinärzte',  farbe: '#d9625f', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['doctors'] } }, { tags: { healthcare: ['doctor'] } } ] },
+      { id: 'apotheke',       name: 'Apotheken',       farbe: '#c0517a', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['pharmacy'] } } ] } ]},
+    { name: 'Einkaufen', layer: [
+      { id: 'supermarkt',     name: 'Supermärkte',     farbe: '#4874a6', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: ['supermarket'] } } ] },
+      { id: 'baeckerei',      name: 'Bäckereien',      farbe: '#7ea3cf', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: ['bakery', 'pastry'] } } ] },
+      { id: 'drogerie',       name: 'Drogerien',       farbe: '#4c9aa6', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: ['chemist', 'drugstore'] } } ] },
+      { id: 'wochenmarkt',    name: 'Wochenmärkte',    farbe: '#2f5b85', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['marketplace'] } } ] },
+      { id: 'laeden',         name: 'Sonstige Läden',  farbe: '#c4d8ee', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: true }, ohne: { shop: ['vacant', 'no'] } } ] } ]},
+    { name: 'Freizeit', layer: [
+      { id: 'gastronomie',    name: 'Gastronomie',     farbe: '#e9c24f', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['restaurant', 'cafe', 'fast_food', 'ice_cream', 'food_court', 'biergarten'] } } ] },
+      { id: 'kultur',         name: 'Kultur (Kino, Theater, Museum)', farbe: '#cf9532', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['cinema', 'theatre', 'arts_centre', 'community_centre'] } },
+                  { tags: { tourism: ['museum', 'gallery'] } } ] },
+      { id: 'sport',          name: 'Sport',           farbe: '#f3e2a2', form: 'flaeche', nutzung: true, flaechen: true, kontur: '#c8a94e',
+        regeln: [ { tags: { leisure: ['sports_centre', 'fitness_centre', 'stadium', 'swimming_pool', 'sports_hall', 'pitch'] } } ] },
+      { id: 'nachtleben',     name: 'Bars & Nachtleben', farbe: '#a8913f', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['bar', 'pub', 'nightclub'] } } ] } ]},
+    { name: 'Bildung', layer: [
+      { id: 'kita',           name: 'Kitas',           farbe: '#dcd0ec', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['kindergarten', 'childcare'] } } ] },
+      { id: 'grundschule',    name: 'Grundschulen',    farbe: '#b49fdc', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['school'], school: ['primary'] } },
+                  { tags: { amenity: ['school'] }, muster: { 'isced:level': '(^|;) ?1 ?(;|$)' } },
+                  { tags: { amenity: ['school'] }, muster: { name: '[Gg]rundschule' } } ] },
+      { id: 'schule',         name: 'Weiterführende Schulen', farbe: '#8a6dc0', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['school'] } } ] },
+      { id: 'hochschule',     name: 'Hochschulen',     farbe: '#5c4795', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['university', 'college'] } } ] },
+      { id: 'bibliothek',     name: 'Bibliotheken',    farbe: '#b083b8', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['library'] } } ] } ]},
+    { name: 'Wohnen', layer: [
+      { id: 'wohnen',         name: 'Wohngebäude',     farbe: '#f2b37a', form: 'flaeche',
+        regeln: [ { typ: 'way', tags: { building: WOHNGEBAEUDE } }, { typ: 'relation', tags: { building: WOHNGEBAEUDE } } ] } ]}
+  ]}
+];
+
+/* ---------- Zustand: welche Layer sind an? ---------- */
+const aktiv = new Set();
+function alleLayerVon(gruppe) { return gruppe.untergruppen.flatMap(u => u.layer); }
+
+function alleLayer() { return LAYER_GRUPPEN.flatMap(alleLayerVon); }
+function layerInfo(id) { return alleLayer().find(l => l.id === id); }
+
+/* Jeder Layer wird auf der Karte als bis zu drei Ebenen gezeichnet:
+   -fl = Flächen, -li = Linien, -pu = Punkte */
+const TEILE = ['-fl', '-ko', '-li', '-pu'];
+function karteLayerSichtbar(layerId, an) {
+  TEILE.forEach(t => {
+    const id = 'q-' + layerId + t;
+    if (karte.getLayer(id)) karte.setLayoutProperty(id, 'visibility', an ? 'visible' : 'none');
+  });
+}
+
+/* =========================================================
+   DATEN LADEN  (Overpass = Abfrage-Schnittstelle von OpenStreetMap)
+   ========================================================= */
+const OVERPASS_SERVER = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter'
+];
+const WARTEZEIT_PRO_SERVER = 60000;   // ms – danach wird der nächste Server versucht
+const GLEICHZEITIG = 2;               // höchstens so viele Abfragen auf einmal
+const geladeneDaten = {};   // layerId -> GeoJSON
+
+// Eine Regel in Overpass-Sprache übersetzen, z. B. nwr["leisure"~"^(park|garden)$"](bbox);
+function regelZuAbfrage(r, bbox) {
+  let s = r.typ || 'nwr';
+  for (const k in r.tags) {
+    const v = r.tags[k];
+    s += v === true ? '["' + k + '"]' : v.length === 1 ? '["' + k + '"="' + v[0] + '"]' : '["' + k + '"~"^(' + v.join('|') + ')$"]';
+  }
+  for (const k in (r.muster || {})) s += '["' + k + '"~"' + r.muster[k] + '"]';
+  for (const k in (r.ohne || {})) s += '["' + k + '"!~"^(' + r.ohne[k].join('|') + ')$"]';
+  return s + '(' + bbox + ');';
+}
+// Passt ein OSM-Objekt zu einer Regel?
+function regelPasst(r, typ, tags) {
+  if (r.typ && r.typ !== 'nwr' && r.typ !== typ) return false;
+  for (const k in r.tags) {
+    if (r.tags[k] === true) { if (!(k in tags)) return false; }
+    else if (!r.tags[k].includes(tags[k])) return false;
+  }
+  for (const k in (r.muster || {})) if (!new RegExp(r.muster[k]).test(tags[k] || '')) return false;
+  for (const k in (r.ohne || {})) if (tags[k] && r.ohne[k].includes(tags[k])) return false;
+  return true;
+}
+
+// Ladeprotokoll in der Statusanzeige
+function protokoll(text) {
+  const el = document.getElementById('ladeprotokoll');
+  const zeile = document.createElement('div');
+  zeile.textContent = text;
+  el.appendChild(zeile);
+}
+
+// Warteschlange: nie mehr als GLEICHZEITIG Abfragen auf einmal
+let laufend = 0;
+const warteschlange = [];
+function platzHolen() {
+  return new Promise(r => { if (laufend < GLEICHZEITIG) { laufend++; r(); } else warteschlange.push(r); });
+}
+function platzFreigeben() {
+  const n = warteschlange.shift();
+  if (n) n(); else laufend--;
+}
+
+async function overpassAbfragen(abfrage, startServer = 0, name = '') {
+  await platzHolen();
+  try {
+    let letzterFehler = null;
+    for (let i = 0; i < OVERPASS_SERVER.length; i++) {
+      const server = OVERPASS_SERVER[(startServer + i) % OVERPASS_SERVER.length];
+      const host = new URL(server).hostname;
+      const t0 = performance.now();
+      const abbruch = new AbortController();
+      const timer = setTimeout(() => abbruch.abort(), WARTEZEIT_PRO_SERVER);
+      try {
+        const antwort = await fetch(server, {
+          method: 'POST', signal: abbruch.signal,
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'data=' + encodeURIComponent(abfrage)
+        });
+        if (!antwort.ok) throw new Error('Fehler ' + antwort.status + (antwort.status === 429 ? ' (zu viele Anfragen)' : antwort.status === 504 ? ' (Server überlastet)' : ''));
+        const json = await antwort.json();
+        if (json.remark && /runtime error/i.test(json.remark)) throw new Error('Server-Abbruch: ' + json.remark.slice(0, 60));
+        protokoll(name + ' → ' + host + ': ✓ ' + Math.round((performance.now() - t0) / 1000) + ' s');
+        return { json, server: host };
+      } catch (e) {
+        const grund = e.name === 'AbortError' ? 'keine Antwort nach ' + WARTEZEIT_PRO_SERVER / 1000 + ' s' : e.message;
+        protokoll(name + ' → ' + host + ': ✗ ' + grund);
+        letzterFehler = e;
+      } finally { clearTimeout(timer); }
+    }
+    throw letzterFehler;
+  } finally { platzFreigeben(); }
+}
+
+/* ---------- OSM-Daten in Geometrien umwandeln ---------- */
+const gleich = (a, b) => a[0] === b[0] && a[1] === b[1];
+
+function istFlaeche(tags) {
+  if (tags.area === 'no') return false;
+  if (tags.area === 'yes') return true;
+  if (tags.natural === 'tree_row' || tags.barrier || tags.highway || tags.railway || tags.route) return false;
+  return true;
+}
+
+// Einzelne Wegstücke zu geschlossenen Ringen zusammensetzen (für Multipolygone)
+function ringeBauen(wege) {
+  const rest = wege.map(w => w.slice());
+  const ringe = [];
+  while (rest.length) {
+    let ring = rest.shift();
+    let sicherung = 0;
+    while (!gleich(ring[0], ring[ring.length - 1]) && sicherung++ < 2000) {
+      const ende = ring[ring.length - 1];
+      const i = rest.findIndex(w => gleich(w[0], ende) || gleich(w[w.length - 1], ende));
+      if (i < 0) break;
+      const w = rest.splice(i, 1)[0];
+      if (!gleich(w[0], ende)) w.reverse();
+      ring = ring.concat(w.slice(1));
+    }
+    if (ring.length >= 4 && gleich(ring[0], ring[ring.length - 1])) ringe.push(ring);
+  }
+  return ringe;
+}
+function punktInRing(p, ring) {
+  let drin = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) drin = !drin;
+  }
+  return drin;
+}
+
+function zuGeometrie(el) {
+  const tags = el.tags || {};
+  if (el.type === 'node') return { type: 'Point', coordinates: [el.lon, el.lat] };
+  if (el.type === 'way' && el.geometry) {
+    const k = el.geometry.map(p => [p.lon, p.lat]);
+    if (k.length >= 4 && gleich(k[0], k[k.length - 1]) && istFlaeche(tags)) return { type: 'Polygon', coordinates: [k] };
+    return { type: 'LineString', coordinates: k };
+  }
+  if (el.type === 'relation' && el.members && tags.type === 'route') {
+    // Linienverlauf: alle Wegstücke der Linie (ohne Bahnsteige/Haltepunkte); Lücken durch den Zuschnitt werden getrennt
+    const linien = [];
+    el.members.forEach(m => {
+      if (m.type !== 'way' || !m.geometry || /platform|stop/.test(m.role || '')) return;
+      let stueck = [];
+      m.geometry.forEach(p => {
+        if (p) stueck.push([p.lon, p.lat]);
+        else { if (stueck.length > 1) linien.push(stueck); stueck = []; }
+      });
+      if (stueck.length > 1) linien.push(stueck);
+    });
+    return linien.length ? { type: 'MultiLineString', coordinates: linien } : null;
+  }
+  if (el.type === 'relation' && el.members && (tags.type === 'multipolygon' || tags.type === 'boundary')) {
+    const wege = rolle => el.members.filter(m => m.type === 'way' && m.geometry && (rolle === 'inner' ? m.role === 'inner' : m.role !== 'inner'))
+                                    .map(m => m.geometry.filter(Boolean).map(p => [p.lon, p.lat]));
+    const aussen = ringeBauen(wege('outer'));
+    if (!aussen.length) return null;
+    const polys = aussen.map(r => [r]);
+    ringeBauen(wege('inner')).forEach(innen => {
+      const p = polys.find(p => punktInRing(innen[0], p[0]));
+      if (p) p.push(innen);
+    });
+    return { type: 'MultiPolygon', coordinates: polys };
+  }
+  return null;
+}
+
+/* ---------- Geladene Daten auf die Karte zeichnen ---------- */
+// Wo werden unsere Ebenen einsortiert? "unten" = unter den Gebäuden der Grundkarte, "oben" = unter den Beschriftungen
+function einfuegenVor(ebene) {
+  const ls = karte.getStyle().layers;
+  const ziel = ls.find(l => (ebene === 'unten' && l['source-layer'] === 'building') || l.type === 'symbol');
+  return ziel ? ziel.id : undefined;
+}
+
+function layerZeichnen(l) {
+  const daten = geladeneDaten[l.id];
+  if (!daten) return;
+  const quelle = 'q-' + l.id;
+  if (karte.getSource(quelle)) { karte.getSource(quelle).setData(daten); return; }
+  karte.addSource(quelle, { type: 'geojson', data: daten });
+  const sichtbar = aktiv.has(l.id) ? 'visible' : 'none';
+  const istTyp = typen => ['match', ['geometry-type'], typen, true, false];
+
+  karte.addLayer({ id: quelle + '-fl', type: 'fill', source: quelle, filter: istTyp(['Polygon', 'MultiPolygon']),
+    layout: { visibility: sichtbar },
+    paint: { 'fill-color': l.farbe, 'fill-opacity': l.nutzung || l.id === 'wohnen' ? 1 : 0.85,
+             'fill-outline-color': l.nutzung || l.id === 'wohnen' ? '#ffffff' : l.farbe } }, einfuegenVor(l.ebene || 'oben'));
+  if (l.kontur) karte.addLayer({ id: quelle + '-ko', type: 'line', source: quelle, filter: istTyp(['Polygon', 'MultiPolygon']),
+    layout: { visibility: sichtbar },
+    paint: { 'line-color': l.kontur, 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.6, 19, 1.6] } }, einfuegenVor('oben'));
+  karte.addLayer({ id: quelle + '-li', type: 'line', source: quelle, filter: istTyp(['LineString', 'MultiLineString']),
+    layout: { visibility: sichtbar, 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': l.farbe,
+             'line-width':  ['interpolate', ['linear'], ['zoom'], 15, (l.breite || 2) * 0.6, 19, (l.breite || 2) * 1.8],
+             // "versatz": Linie seitlich verschieben, damit sich z. B. Auto, Rad und Bus nicht überdecken
+             'line-offset': ['interpolate', ['linear'], ['zoom'], 15, (l.versatz || 0) * 2.5, 19, (l.versatz || 0) * 6.5] } }, einfuegenVor('oben'));
+  karte.addLayer({ id: quelle + '-pu', type: 'circle', source: quelle, filter: istTyp(['Point', 'MultiPoint']),
+    layout: { visibility: sichtbar },
+    paint: { 'circle-color': l.farbe, 'circle-opacity': 0.9,
+             'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, (l.radius || 5) * 0.45, 19, (l.radius || 5)],
+             'circle-stroke-color': '#ffffff', 'circle-stroke-width': 0.5 } }, einfuegenVor('oben'));
+}
+
+// Nach einem Wechsel der Grundkarte müssen unsere Ebenen neu gezeichnet werden
+karte.on('style.load', () => alleLayer().slice().reverse().forEach(layerZeichnen));
+
+/* ---------- Hilfsfunktionen für Gebäude ---------- */
+function boxVon(g) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  polys.forEach(p => p[0].forEach(([x, y]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }));
+  return [x0, y0, x1, y1];
+}
+const inBox = (p, b) => p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3];
+const boxUeberlappt = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+function punktInGeom(p, g) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  return polys.some(poly => punktInRing(p, poly[0]) && !poly.slice(1).some(loch => punktInRing(p, loch)));
+}
+function gebaeudeEintrag(el, g) {
+  const ring = (g.type === 'Polygon' ? g.coordinates : g.coordinates[0])[0];
+  const n = ring.length - 1;
+  let mx = 0, my = 0;
+  for (let i = 0; i < n; i++) { mx += ring[i][0]; my += ring[i][1]; }
+  return { osm: el.type + '/' + el.id, geom: g, box: boxVon(g), mitte: [mx / n, my / n], tags: el.tags || {} };
+}
+
+// Abstand (in Metern) von einem Punkt zum Rand eines Gebäudes – für Punkte, die knapp neben dem Haus liegen
+function abstandZuGebaeude(p, b) {
+  const kx = 111320 * Math.cos(p[1] * Math.PI / 180), ky = 110540;
+  let min = Infinity;
+  const polys = b.geom.type === 'Polygon' ? [b.geom.coordinates] : b.geom.coordinates;
+  polys.forEach(poly => {
+    const r = poly[0];
+    for (let i = 0; i < r.length - 1; i++) {
+      const ax = (r[i][0] - p[0]) * kx, ay = (r[i][1] - p[1]) * ky;
+      const bx = (r[i + 1][0] - p[0]) * kx, by = (r[i + 1][1] - p[1]) * ky;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      const t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+      const qx = ax + t * dx, qy = ay + t * dy;
+      min = Math.min(min, Math.hypot(qx, qy));
+    }
+  });
+  return min;
+}
+const SUCHRADIUS_METER = 20;
+
+/* ---------- Eine Antwort von Overpass in Layer-Daten umwandeln ---------- */
+function verarbeiten(json, layerListe) {
+  const sammlung = {};
+  layerListe.forEach(l => sammlung[l.id] = []);
+  const ids = new Set(layerListe.map(l => l.id));
+  const untergruppen = LAYER_GRUPPEN.flatMap(g => g.untergruppen)
+    .map(u => u.layer.filter(l => ids.has(l.id))).filter(ls => ls.length);
+  const gesehen = new Set();
+  const gebaeude = [];        // alle Gebäude (für das Einfärben)
+  const wohngebiete = [];     // Wohngebiets-Flächen (für "vermutete" Wohngebäude)
+  const nutzungsObjekte = []; // Punkte/Flächen, die Gebäude einfärben sollen
+
+  (json.elements || []).forEach(el => {
+    const schluessel = el.type + '/' + el.id;
+    if (gesehen.has(schluessel)) return;   // doppelte Objekte überspringen
+    gesehen.add(schluessel);
+    const tags = el.tags || {};
+    let geom;
+    const geometrie = () => (geom === undefined ? (geom = zuGeometrie(el)) : geom);
+
+    if (tags.building && el.type !== 'node') {
+      const g = geometrie();
+      if (g && /Polygon/.test(g.type)) gebaeude.push(gebaeudeEintrag(el, g));
+    }
+    if (tags.landuse === 'residential' && el.type !== 'node') {
+      const g = geometrie();
+      if (g && /Polygon/.test(g.type)) wohngebiete.push({ geom: g, box: boxVon(g) });
+    }
+
+    // Pro Untergruppe dem ersten passenden Layer zuordnen
+    untergruppen.forEach(ls => {
+      const l = ls.find(l => l.regeln.some(r => regelPasst(r, el.type, tags)));
+      if (!l) return;
+      const g = geometrie();
+      if (!g) return;
+      const props = Object.assign({ _osm: schluessel }, tags);
+      if (l.nutzung) nutzungsObjekte.push({ l, el, g, props });
+      else sammlung[l.id].push({ type: 'Feature', geometry: g, properties: props });
+    });
+  });
+
+  /* ---- Nutzungen: nur Gebäude einfärben ---- */
+  const genutzt = new Set();
+  nutzungsObjekte.forEach(({ l, el, g, props }) => {
+    let treffer = [];
+    if (g.type === 'Point') {
+      const p = g.coordinates;
+      let b = gebaeude.find(b => inBox(p, b.box) && punktInGeom(p, b.geom));
+      if (!b) {
+        // nicht im Haus? -> nächstes Gebäude im Umkreis von 20 m
+        const rand = SUCHRADIUS_METER / 111000 * 1.8;
+        let best = null, bestAbstand = SUCHRADIUS_METER;
+        gebaeude.forEach(k => {
+          if (p[0] < k.box[0] - rand || p[0] > k.box[2] + rand || p[1] < k.box[1] - rand || p[1] > k.box[3] + rand) return;
+          const d = abstandZuGebaeude(p, k);
+          if (d < bestAbstand) { bestAbstand = d; best = k; }
+        });
+        b = best;
+      }
+      if (b) treffer = [b];
+    } else if (/Polygon/.test(g.type)) {
+      if (el.tags.building) {
+        const b = gebaeude.find(b => b.osm === el.type + '/' + el.id);
+        if (b) treffer = [b];
+      } else {
+        const box = boxVon(g);
+        treffer = gebaeude.filter(b => boxUeberlappt(b.box, box) && punktInGeom(b.mitte, g));
+      }
+    }
+    treffer.forEach(b => {
+      genutzt.add(b.osm);
+      sammlung[l.id].push({ type: 'Feature', geometry: b.geom, properties: Object.assign({ _gebaeude: b.osm }, props) });
+    });
+    // Punkte ganz ohne Gebäude in der Nähe bleiben als kleiner Punkt sichtbar.
+    // Flächen ohne Gebäude entfallen – außer bei Layern mit "flaechen: true" (z. B. Sportplätze)
+    if (!treffer.length && (g.type === 'Point' || l.flaechen)) sammlung[l.id].push({ type: 'Feature', geometry: g, properties: props });
+  });
+
+  /* ---- Wohnen: zusätzlich Gebäude ohne bekannte Nutzung in Wohngebieten ---- */
+  if (sammlung.wohnen) {
+    const schonWohnen = new Set(sammlung.wohnen.map(f => f.properties._osm));
+    gebaeude.forEach(b => {
+      if (schonWohnen.has(b.osm) || genutzt.has(b.osm) || b.tags.amenity || b.tags.shop) return;
+      const nachMerkmal = b.tags['building:use'] === 'residential';
+      const vermutet = WOHNEN_AUS_WOHNGEBIET && b.tags.building === 'yes' &&
+        wohngebiete.some(w => inBox(b.mitte, w.box) && punktInGeom(b.mitte, w.geom));
+      if (nachMerkmal || vermutet) sammlung.wohnen.push({ type: 'Feature', geometry: b.geom,
+        properties: Object.assign({ _osm: b.osm }, vermutet && !nachMerkmal ? { _vermutet: 'ja' } : {}, b.tags) });
+    });
+  }
+  return sammlung;
+}
+
+/* ---------- Laden: die drei Hauptgruppen gleichzeitig, jede über einen anderen Server ---------- */
+let ladeLaeuft = false;
+async function datenLaden() {
+  if (ladeLaeuft) return;
+  ladeLaeuft = true;
+  const knopf = document.getElementById('laden');
+  const b = karte.getBounds();
+  const bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(x => x.toFixed(6)).join(',');
+  const start = performance.now();
+  const fortschritt = {};
+  const zeigeFortschritt = () => {
+    const txt = LAYER_GRUPPEN.map(g => g.name + ' ' + (fortschritt[g.id] || '…')).join(' · ');
+    const fertig = LAYER_GRUPPEN.every(g => fortschritt[g.id] && fortschritt[g.id] !== '…');
+    const fehler = Object.values(fortschritt).some(t => t.includes('✗'));
+    status('st-daten', 'Daten: ' + txt, fertig ? (fehler ? 'fehler' : 'ok') : 'warte');
+  };
+
+  knopf.disabled = true;
+  knopf.textContent = 'Lädt …';
+  zeigeFortschritt();
+
+  // Jede Gruppe = eine oder mehrere Abfragen; alle laufen gleichzeitig auf verschiedenen Servern
+  let serverZaehler = 0;
+  const reihenfolge = ['gruen', 'mobilitaet', 'nutzungen'].map(id => LAYER_GRUPPEN.find(g => g.id === id));
+  document.getElementById('ladeprotokoll').innerHTML = '';
+  const auftraege = reihenfolge.map(async g => {
+    const layerListe = alleLayerVon(g).filter(l => l.regeln);
+    if (!layerListe.length) return;
+    const regeln = layerListe.flatMap(l => l.regeln);
+    const normal = regeln.filter(r => !r.zuschneiden).map(r => regelZuAbfrage(r, bbox)).join('') +
+                   (g.id === 'nutzungen' ? HILFSREGELN.map(r => regelZuAbfrage(r, bbox)).join('') : '');
+    const zuschnitt = regeln.filter(r => r.zuschneiden).map(r => regelZuAbfrage(r, bbox)).join('');
+    const teile = [{ abfrage: '[out:json][timeout:90];(' + normal + ');out geom qt;' +
+                              (zuschnitt ? '(' + zuschnitt + ');out geom(' + bbox + ') qt;' : '') }];
+    if (g.id === 'nutzungen') GEBAEUDE_UMRISSE.forEach(u => teile.push({
+      abfrage: '[out:json][timeout:90];' + u.abfrage + '(' + bbox + ');out skel geom qt;',
+      merkmal: u.merkmal }));
+    try {
+      const antworten = await Promise.all(teile.map((t, i) =>
+        overpassAbfragen(t.abfrage, serverZaehler++, g.name + (teile.length > 1 ? ' ' + (i + 1) + '/' + teile.length : '')).then(a => ({ a, t }))));
+      // Antworten zusammenführen; Umriss-Gebäude bekommen ihr Merkmal zurück
+      const elemente = [];
+      antworten.forEach(({ a, t }) => (a.json.elements || []).forEach(el => {
+        if (t.merkmal && !el.tags) el.tags = t.merkmal;
+        elemente.push(el);
+      }));
+      await new Promise(r => setTimeout(r, 20));
+      const sammlung = verarbeiten({ elements: elemente }, layerListe);
+      // von unten nach oben zeichnen: was im Menü oben steht, liegt oben
+      layerListe.slice().reverse().forEach(l => {
+        geladeneDaten[l.id] = { type: 'FeatureCollection', features: sammlung[l.id] };
+        layerZeichnen(l);
+        const anz = document.getElementById('anz-' + l.id);
+        if (anz) anz.textContent = sammlung[l.id].length;
+      });
+      fortschritt[g.id] = '✓ (' + Math.round((performance.now() - start) / 1000) + ' s)';
+    } catch (e) {
+      console.warn(e);
+      fortschritt[g.id] = '✗';
+    }
+    zeigeFortschritt();
+  });
+
+  await Promise.all(auftraege);
+  ebenenOrdnen();
+  const fehler = Object.values(fortschritt).some(t => t.includes('✗'));
+  meldung(fehler ? 'Nicht alles konnte geladen werden – bitte in einer Minute erneut versuchen.'
+                 : 'Fertig geladen in ' + Math.round((performance.now() - start) / 1000) + ' Sekunden.');
+  knopf.textContent = 'Daten für diesen Ausschnitt laden';
+  ladeLaeuft = false;
+  anzeigeAktualisieren();
+}
+
+// Da die Gruppen in beliebiger Reihenfolge fertig werden: Ebenen am Ende sauber sortieren
+function ebenenOrdnen() {
+  const reihenfolge = alleLayer().slice().reverse();   // unten zuerst
+  ['-fl', '-ko', '-li', '-pu'].forEach(teil => {
+    reihenfolge.forEach(l => {
+      const id = 'q-' + l.id + teil;
+      if (!karte.getLayer(id)) return;
+      const vor = teil === '-fl' ? einfuegenVor(l.ebene || 'oben') : einfuegenVor('oben');
+      if (vor && vor !== id) karte.moveLayer(id, vor);
+    });
+  });
+}
+
+function symbolHTML(l) {
+  return '<span class="sym ' + l.form + '" style="background:' + l.farbe + '"></span>';
+}
+
+/* ---------- Layer-Menü in der Seitenleiste bauen ---------- */
+function menueBauen() {
+  const menue = document.getElementById('layermenue');
+  menue.innerHTML = '';
+  LAYER_GRUPPEN.forEach(g => {
+    const box = document.createElement('div');
+    box.className = 'gruppe';
+    box.innerHTML =
+      '<div class="gruppe-kopf"><span class="pfeil">▶</span><span class="gname">' + g.name + '</span>' +
+      '<label class="schalter" title="Alle an/aus"><input type="checkbox" data-gruppe="' + g.id + '"><span></span></label></div>' +
+      '<div class="gruppe-inhalt"></div>';
+    const inhalt = box.querySelector('.gruppe-inhalt');
+
+    g.untergruppen.forEach(u => {
+      if (u.name) {
+        const t = document.createElement('div');
+        t.className = 'untergruppe-titel'; t.textContent = u.name;
+        inhalt.appendChild(t);
+      }
+      u.layer.forEach(l => {
+        const z = document.createElement('div');
+        z.className = 'zeile';
+        z.innerHTML = symbolHTML(l) +
+          '<label class="name" for="sw-' + l.id + '">' + l.name + '</label>' +
+          '<span class="anz" id="anz-' + l.id + '"></span>' +
+          '<label class="schalter"><input type="checkbox" id="sw-' + l.id + '" data-layer="' + l.id + '"><span></span></label>';
+        inhalt.appendChild(z);
+      });
+    });
+
+    // Auf-/Zuklappen per Klick auf den Gruppenkopf (nicht auf den Schalter)
+    box.querySelector('.gruppe-kopf').addEventListener('click', e => {
+      if (e.target.closest('.schalter')) return;
+      box.classList.toggle('offen');
+    });
+    menue.appendChild(box);
+  });
+
+  // Einzelschalter
+  menue.querySelectorAll('input[data-layer]').forEach(inp => {
+    inp.addEventListener('change', () => schalteLayer(inp.dataset.layer, inp.checked));
+  });
+  // Gruppenschalter "alle an/aus"
+  menue.querySelectorAll('input[data-gruppe]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const g = LAYER_GRUPPEN.find(x => x.id === inp.dataset.gruppe);
+      alleLayerVon(g).forEach(l => schalteLayer(l.id, inp.checked));
+    });
+  });
+}
+
+function schalteLayer(id, an) {
+  if (an) aktiv.add(id); else aktiv.delete(id);
+  const sw = document.getElementById('sw-' + id);
+  if (sw) sw.checked = an;
+  karteLayerSichtbar(id, an);
+  gruppenschalterAktualisieren();
+  legendeAktualisieren();
+}
+
+// Gruppenschalter zeigt: alle an / keine an / teilweise
+function gruppenschalterAktualisieren() {
+  LAYER_GRUPPEN.forEach(g => {
+    const inp = document.querySelector('input[data-gruppe="' + g.id + '"]');
+    const ids = alleLayerVon(g).map(l => l.id);
+    const anzahl = ids.filter(id => aktiv.has(id)).length;
+    inp.checked = anzahl === ids.length;
+    inp.parentElement.classList.toggle('teilweise', anzahl > 0 && anzahl < ids.length);
+  });
+}
+
+/* ---------- Legende auf der Karte (nur aktive Layer) ---------- */
+function legendeAktualisieren() {
+  const lg = document.getElementById('legende');
+  if (aktiv.size === 0) { lg.style.display = 'none'; return; }
+  let html = '<h3>Legende</h3>';
+  LAYER_GRUPPEN.forEach(g => {
+    g.untergruppen.forEach(u => {
+      const an = u.layer.filter(l => aktiv.has(l.id));
+      if (!an.length) return;
+      html += '<div class="lg-gruppe">' + (u.name || g.name) + '</div>';
+      an.forEach(l => { html += '<div class="lg-zeile">' + symbolHTML(l) + '<span>' + l.name + '</span></div>'; });
+    });
+  });
+  lg.innerHTML = html;
+  lg.style.display = 'block';
+}
+
+menueBauen();
+
+// Prüfen, ob die Grundkarte wirklich Daten bekommt
+karte.on('data', e => {
+  if (!grundkarteOk && e.dataType === 'source' && e.isSourceLoaded && e.tile) {
+    grundkarteOk = true;
+    status('st-kacheln', 'Grundkarte: geladen (' + GRUNDKARTEN[grundkartenNr].name + ') ✓', 'ok');
+  }
+});
+let fehlerZaehler = 0;
+karte.on('error', e => {
+  console.warn('Kartenfehler:', e && e.error);
+  if (grundkarteOk) return;
+  fehlerZaehler++;
+  if (fehlerZaehler >= 3) wechsleGrundkarte();
+});
+// Falls nach 10 Sekunden nichts da ist: Ersatz nehmen
+setTimeout(() => { if (!grundkarteOk) wechsleGrundkarte(); }, 10000);
+
+function wechsleGrundkarte() {
+  if (grundkartenNr + 1 >= GRUNDKARTEN.length) {
+    status('st-kacheln', 'Grundkarte: keine Quelle erreichbar – Internet/Firewall prüfen', 'fehler');
+    return;
+  }
+  grundkartenNr++;
+  fehlerZaehler = 0;
+  status('st-kacheln', 'Grundkarte: Ersatz wird geladen (' + GRUNDKARTEN[grundkartenNr].name + ') …', 'warte');
+  karte.setStyle(GRUNDKARTEN[grundkartenNr].stil);
+  setTimeout(() => { if (!grundkarteOk) status('st-kacheln', 'Grundkarte: keine Quelle erreichbar – Internet/Firewall prüfen', 'fehler'); }, 10000);
+}
+
+/* ---------- Maßstab (Zoomstufe <-> 1:x umrechnen) ---------- */
+// MapLibre rechnet mit 512-Pixel-Kacheln: 1 Pixel bei Zoom 0 am Äquator = 78.271,5 m
+function meterProPixel(zoom, breitengrad) {
+  return 78271.51696 * Math.cos(breitengrad * Math.PI / 180) / Math.pow(2, zoom);
+}
+function aktuellerMassstab() {
+  return meterProPixel(karte.getZoom(), karte.getCenter().lat) / METER_PRO_PIXEL_BILDSCHIRM;
+}
+function zoomFuerMassstab(massstab, breitengrad) {
+  const mpp = massstab * METER_PRO_PIXEL_BILDSCHIRM;
+  return Math.log2(78271.51696 * Math.cos(breitengrad * Math.PI / 180) / mpp);
+}
+function schoeneZahl(n) {
+  const r = n < 1000 ? Math.round(n / 10) * 10 : n < 10000 ? Math.round(n / 50) * 50 : Math.round(n / 1000) * 1000;
+  return r.toLocaleString('de-DE');
+}
+
+const auswahl = document.getElementById('massstab');
+auswahl.addEventListener('change', () => {
+  if (!auswahl.value) return;
+  karte.easeTo({ zoom: zoomFuerMassstab(Number(auswahl.value), karte.getCenter().lat), duration: 600 });
+});
+
+function anzeigeAktualisieren() {
+  const m = aktuellerMassstab();
+  document.getElementById('massstab-jetzt').textContent = '1 : ' + schoeneZahl(m);
+
+  if (auswahl.value && Math.abs(m - Number(auswahl.value)) / Number(auswahl.value) > 0.03) auswahl.value = '';
+
+  const knopf = document.getElementById('laden');
+  const hinweis = document.getElementById('laden-hinweis');
+  if (m <= MAX_MASSSTAB_FUER_DATEN * 1.03) {
+    knopf.disabled = false;
+    hinweis.textContent = 'Lädt Grün, Mobilität und Nutzungen für den sichtbaren Ausschnitt.';
+  } else {
+    knopf.disabled = true;
+    hinweis.textContent = 'Zum Laden auf 1 : 5.000 oder näher heranzoomen.';
+  }
+}
+karte.on('moveend', anzeigeAktualisieren);
+karte.on('load', anzeigeAktualisieren);
+anzeigeAktualisieren();
+
+/* ---------- Ortssuche ----------
+   1. Wahl: Nominatim (Suchdienst von OpenStreetMap)
+   2. Wahl: Photon (ebenfalls OpenStreetMap-Daten) */
+const suchfeld = document.getElementById('suche');
+const trefferListe = document.getElementById('treffer');
+let suchTimer = null;
+
+suchfeld.addEventListener('input', () => {
+  clearTimeout(suchTimer);
+  const text = suchfeld.value.trim();
+  if (text.length < 3) { trefferListe.style.display = 'none'; return; }
+  suchTimer = setTimeout(() => suchen(text), 500);
+});
+suchfeld.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { clearTimeout(suchTimer); suchen(suchfeld.value.trim()); }
+});
+
+async function sucheNominatim(text) {
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=de&limit=6&accept-language=de&q=' + encodeURIComponent(text);
+  const antwort = await fetch(url);
+  if (!antwort.ok) throw new Error('Nominatim ' + antwort.status);
+  const daten = await antwort.json();
+  return daten.map(e => {
+    const teile = e.display_name.split(', ');
+    const bb = e.boundingbox.map(Number); // [süd, nord, west, ost]
+    return { titel: teile[0], zusatz: teile.slice(1, 4).join(', '),
+             box: [[bb[2], bb[0]], [bb[3], bb[1]]], lat: Number(e.lat) };
+  });
+}
+async function suchePhoton(text) {
+  const url = 'https://photon.komoot.io/api/?limit=6&lang=de&bbox=5.8,47.2,15.1,55.1&q=' + encodeURIComponent(text);
+  const antwort = await fetch(url);
+  if (!antwort.ok) throw new Error('Photon ' + antwort.status);
+  const daten = await antwort.json();
+  return daten.features.map(f => {
+    const p = f.properties, [lon, lat] = f.geometry.coordinates;
+    const box = p.extent ? [[p.extent[0], p.extent[3]], [p.extent[2], p.extent[1]]]
+                         : [[lon - 0.002, lat - 0.002], [lon + 0.002, lat + 0.002]];
+    const titel = p.name || [p.street, p.housenumber].filter(Boolean).join(' ');
+    return { titel, zusatz: [p.postcode, p.city, p.state].filter(Boolean).join(', '), box, lat };
+  });
+}
+
+async function suchen(text) {
+  if (!text) return;
+  let ergebnisse = null;
+  try {
+    ergebnisse = await sucheNominatim(text);
+    status('st-suche', 'Suche: funktioniert (Nominatim) ✓', 'ok');
+  } catch (e1) {
+    try {
+      ergebnisse = await suchePhoton(text);
+      status('st-suche', 'Suche: funktioniert (Photon) ✓', 'ok');
+    } catch (e2) {
+      status('st-suche', 'Suche: kein Suchdienst erreichbar', 'fehler');
+      meldung('Suche gerade nicht erreichbar – bitte Internetverbindung prüfen.');
+      return;
+    }
+  }
+  zeigeTreffer(ergebnisse);
+}
+
+function zeigeTreffer(ergebnisse) {
+  trefferListe.innerHTML = '';
+  if (!ergebnisse.length) trefferListe.innerHTML = '<li>Nichts gefunden</li>';
+  ergebnisse.forEach(e => {
+    const li = document.createElement('li');
+    li.textContent = e.titel;
+    const klein = document.createElement('span');
+    klein.className = 'klein'; klein.textContent = e.zusatz;
+    li.appendChild(klein);
+    li.addEventListener('click', () => {
+      karte.fitBounds(e.box, { padding: 40, maxZoom: zoomFuerMassstab(2500, e.lat), duration: 1200 });
+      trefferListe.style.display = 'none';
+      suchfeld.value = e.titel;
+    });
+    trefferListe.appendChild(li);
+  });
+  trefferListe.style.display = 'block';
+}
+
+/* ---------- Knöpfe & Meldungen ---------- */
+document.getElementById('laden').addEventListener('click', datenLaden);
+
+document.getElementById('klappknopf').addEventListener('click', () => {
+  document.getElementById('panel').classList.toggle('zu');
+  setTimeout(() => karte.resize(), 300);
+});
+
+let meldungTimer = null;
+function meldung(text) {
+  const m = document.getElementById('meldung');
+  m.textContent = text;
+  m.style.display = 'block';
+  clearTimeout(meldungTimer);
+  meldungTimer = setTimeout(() => m.style.display = 'none', Math.min(9000, Math.max(3500, text.length * 50)));
+}
+
+} // Ende von start()
+</script>
+</body>
+</html>
