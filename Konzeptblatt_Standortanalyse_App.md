@@ -91,3 +91,41 @@ Regeln:
 
 ## Arbeitsweise
 Schrittweise, nach jedem Schritt kurze Pause zum Nachvollziehen und Feedback.
+
+## Ladezeit – Analyse & Lösungen
+Stand: 17.11.2026 – Analyse des Codes, noch nicht live gemessen
+
+### Ursachen (vermutet, nach Gewicht)
+1. **Abfragen warten aufeinander:** 5 Abfragen pro Klick (Grün, Mobilität, Nutzungen 1/3–3/3), aber `GLEICHZEITIG = 2` gilt global statt pro Server → läuft in 3 Wellen. Server-Fallback streng nacheinander mit je 60 s → hängt ein Server, sind 60 s weg (schlimmstenfalls 4 min pro Abfrage).
+2. **`[timeout:90]` schadet:** Browser bricht nach 60 s ab, Server rechnet weiter und blockiert einen Platz. overpass-api.de erlaubt pro IP nur wenige gleichzeitige Abfragen; im eduroam teilen sich viele eine IP → schnell Fehler 429. Hohe Timeout-Werte werden bei Last außerdem später angenommen.
+3. **Gebäude = größter Datenblock:** Bei 1:5.000 auf dem Beamer ca. 2,5 × 1,4 km → in Innenstädten über 10.000 Gebäude, mehrere MB. Große Multipolygone (Wald, Wohngebiete) kommen mit `out geom` komplett, auch weit außerhalb des Ausschnitts.
+4. **Verarbeitung im Browser:** Gebäudesuche linear → eher Sekunden, nachrangig.
+
+**Test zur Prüfung:** Bei 1:2.500 laden und Ladeprotokoll ansehen.
+- Viele „✗ keine Antwort nach 60 s“ oder „429“ → Ursache 1 und 2
+- Alle ✓ nach wenigen Sekunden, trotzdem langsam → Ursache 3 und 4
+
+### Lösungen (nach Aufwand und Nutzen)
+| | Maßnahme | Aufwand | Effekt |
+|---|---|---|---|
+| A | Limit pro Server statt global → alle 5 Abfragen parallel | klein | groß |
+| A | `[timeout:25]` in der Abfrage, Browser-Abbruch nach ca. 30 s | klein | mittel |
+| A | Gestaffelte Parallelanfragen: nach 8–10 s ohne Antwort zusätzlich nächsten Server fragen, erste gültige Antwort gewinnt, Rest abbrechen; bei 429/Fehler sofort weiter | mittel | groß |
+| B | Gebäude aus Grundkarte (OpenFreeMap-Kacheln) per `querySourceFeatures` statt Overpass → spart 2 von 5 Abfragen und den größten Datenblock | mittel | groß |
+| C | Raster als Suchhilfe für Gebäude; große Wald-/Wohngebietsflächen prüfen | klein | klein |
+
+**Haken bei B (in der Gruppe abstimmen):**
+- Kachelgeometrie leicht vereinfacht, Gebäude an Kachelgrenzen geteilt (optisch kaum sichtbar)
+- Merkmal `building=yes` fehlt → Wohnen-Regel müsste vereinfacht werden (z. B. alle Gebäude ohne Nutzung im Wohngebiet = Wohnen)
+
+### Caching
+- **Ausschnitt speichern/öffnen als Datei (.json):** für die Präsentation auf jeden Fall bauen → Daten in 1 s da, unabhängig von Overpass (nur die Grundkarte braucht weiter Internet)
+- **Automatischer Browser-Cache (IndexedDB):** Schlüssel = Gruppe + gerundeter Ausschnitt, gültig ca. 7 Tage → zweites Laden sofort. Bei Doppelklick-Datei in Firefox unzuverlässig → funktioniert sauber erst über GitHub Pages (Repo → Settings → Pages)
+- **Vorgefertigte Daten** für feste Untersuchungsgebiete einmal laden und ins Repo legen
+
+### Empfehlung / nächste Schritte
+1. Ladeprotokoll-Test bei 1:2.500 durchführen
+2. Alle drei Maßnahmen aus A umsetzen
+3. Knöpfe „Ausschnitt speichern / öffnen“ für die Präsentation einbauen
+4. Nur falls weiterhin zu langsam: B (vorher Wohnen-Regel abstimmen)
+5. Später: GitHub Pages + Browser-Cache
