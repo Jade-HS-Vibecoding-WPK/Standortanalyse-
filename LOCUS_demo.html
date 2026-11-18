@@ -6,6 +6,9 @@
 <title>LOCUS – Demo</title>
 <!-- Die Kartenbibliothek "MapLibre" wird weiter unten per Skript geladen,
      mit Ersatzquellen, falls ein Server nicht erreichbar ist. -->
+<!-- Niedersachsen-Cache: fertige OpenStreetMap-Daten für die großen Städte Niedersachsens (siehe „Niedersachsen-Cache“ unten).
+     "async" = die Seite wartet nicht darauf. Lädt es nicht (offline, Seite nicht erreichbar), lädt LOCUS wie bisher live. -->
+<script async src="https://jade-hs-vibecoding-wpk.github.io/niedersachsen-cache/nds-cache.js"></script>
 <style>
   /* ====== FARBEN & GRUNDLAYOUT (hier könnt ihr später Werte ändern) ====== */
   :root {
@@ -400,6 +403,7 @@
       <div class="abschnitt-titel">Daten</div>
       <button class="haupt" id="laden" disabled>Daten für diesen Ausschnitt laden</button>
       <div class="hinweis" id="laden-hinweis">Zum Laden auf 1 : 5.000 oder näher heranzoomen.</div>
+      <button class="neben" id="neu-laden" style="display:none">Neu vom Server laden</button>
     </div>
 
     <div class="abschnitt">
@@ -967,16 +971,6 @@ function karteLayerSichtbar(layerId, an) {
 /* =========================================================
    DATEN LADEN  (Overpass = Abfrage-Schnittstelle von OpenStreetMap)
    ========================================================= */
-// Reihenfolge = Vorrang. overpass-api.de ist der Hauptserver, die anderen sind Ersatz.
-const OVERPASS_SERVER = [
-  'https://overpass-api.de/api/interpreter',
-  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter',
-  'https://overpass.kumi.systems/api/interpreter'
-];
-const WARTEZEIT_HAUPTSERVER = 100000; // ms – so lange bekommt der erste Server Zeit
-const WARTEZEIT_ERSATZ = 40000;       // ms – so lange bekommen die Ersatzserver
-const GLEICHZEITIG = 2;               // höchstens so viele Abfragen auf einmal
 const geladeneDaten = {};   // layerId -> GeoJSON
 
 // Eine Regel in Overpass-Sprache übersetzen, z. B. nwr["leisure"~"^(park|garden)$"](bbox);
@@ -1010,49 +1004,32 @@ function protokoll(text) {
   el.appendChild(zeile);
 }
 
-// Warteschlange: nie mehr als GLEICHZEITIG Abfragen auf einmal
-let laufend = 0;
-const warteschlange = [];
-function platzHolen() {
-  return new Promise(r => { if (laufend < GLEICHZEITIG) { laufend++; r(); } else warteschlange.push(r); });
-}
-function platzFreigeben() {
-  const n = warteschlange.shift();
-  if (n) n(); else laufend--;
-}
-
-// Merken, welcher Server zuletzt funktioniert hat (bleibt im Browser gespeichert)
-function serverBewertung() { try { return JSON.parse(localStorage.getItem('serverBewertung') || '{}'); } catch (e) { return {}; } }
-function bewerteServer(host, ok) {
-  try { const b = serverBewertung(); b[host] = ok ? Date.now() : -Date.now(); localStorage.setItem('serverBewertung', JSON.stringify(b)); } catch (e) {}
-}
-// Zuletzt erfolgreiche Server zuerst, zuletzt gescheiterte zuletzt, sonst die feste Reihenfolge
-function serverReihenfolge() {
-  const b = serverBewertung();
-  const rang = u => { const v = b[new URL(u).hostname]; return v > 0 ? 0 : v < 0 ? 2 : 1; };
-  return OVERPASS_SERVER.slice().sort((x, y) => rang(x) - rang(y) || OVERPASS_SERVER.indexOf(x) - OVERPASS_SERVER.indexOf(y));
-}
-
-const pause = ms => new Promise(r => setTimeout(r, ms));
+// Kurz warten – endet sofort, wenn "signal" abgebrochen wird (z. B. weil der andere Server schon geantwortet hat)
+const pause = (ms, signal) => new Promise(r => {
+  const t = setTimeout(r, ms);
+  if (signal) signal.addEventListener('abort', () => { clearTimeout(t); r(); });
+});
 
 /* Laden nach den Ergebnissen der Ladetests (18.11.):
    - dieselbe Abfrage geht gleichzeitig an ZWEI Server ("Wettlauf"), die erste Antwort gewinnt
-   - weist ein Server ab (oft schon nach weniger als 1 s), wird ER nach kurzer Pause erneut gefragt –
-     auch während der andere noch rechnet
-   - scheitern beide Hauptserver endgültig, werden die Ersatzserver einmal versucht */
+   - weist ein Server ab (oft schon nach weniger als 1 s), wird ER erneut gefragt – auch während der andere
+     noch rechnet. Die Pause wird jedes Mal länger (3, 6, 12, 24, 30, 30 … s), wie es die Server selbst
+     empfehlen; so wird nicht nach 5 schnellen Abweisungen aufgegeben, sondern erst nach ZEITLIMIT_GESAMT
+   - scheitern beide Hauptserver endgültig, werden die Ersatzserver einmal kurz versucht */
 const WETTLAUF_SERVER = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
 const ERSATZ_SERVER = ['https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
-const NEUVERSUCH_PAUSE = 3000;        // ms nach einer Abweisung
-const NEUVERSUCH_PAUSE_429 = 10000;   // ms nach "zu viele Anfragen"
-const MAX_VERSUCHE = 5;               // pro Server
+const NEUVERSUCH_PAUSE = 3000;        // ms nach der ersten Abweisung, danach jeweils doppelt so lang …
+const NEUVERSUCH_PAUSE_MAX = 30000;   // ms … aber höchstens so lang
+const NEUVERSUCH_PAUSE_429 = 10000;   // ms mindestens nach "zu viele Anfragen"
 const ZEITLIMIT_VERSUCH = 120000;     // ms, so lange darf ein einzelner Versuch rechnen
-const ZEITLIMIT_GESAMT = 180000;      // ms, danach wird aufgegeben ("Fehlende Daten nachladen")
+const ZEITLIMIT_GESAMT = 180000;      // ms, danach keine neuen Versuche mehr ("Fehlende Daten nachladen")
+const ZEITLIMIT_ERSATZ = 40000;       // ms pro Ersatzserver
 
-async function einVersuch(server, abfrage, signal, name) {
+async function einVersuch(server, abfrage, signal, name, zeitlimit = ZEITLIMIT_VERSUCH) {
   const host = new URL(server).hostname;
   const t0 = performance.now();
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), ZEITLIMIT_VERSUCH);
+  const timer = setTimeout(() => ac.abort(), zeitlimit);
   const weiter = () => ac.abort();
   signal.addEventListener('abort', weiter);
   try {
@@ -1068,23 +1045,27 @@ async function einVersuch(server, abfrage, signal, name) {
     return json;
   } catch (e) {
     if (signal.aborted) throw e;   // anderer Server war schneller – nichts protokollieren
-    const grund = e.name === 'AbortError' ? 'keine Antwort nach ' + ZEITLIMIT_VERSUCH / 1000 + ' s' : e.message;
+    const grund = e.name === 'AbortError' ? 'keine Antwort nach ' + zeitlimit / 1000 + ' s' : e.message;
     protokoll(name + ' → ' + host + ': ✗ ' + grund);
     throw e;
   } finally { clearTimeout(timer); signal.removeEventListener('abort', weiter); }
 }
 
-async function overpassWettlauf(abfrage, name) {
+async function overpassWettlauf(abfrage, name, abbruch) {
   const stopp = new AbortController();
+  if (abbruch) abbruch.addEventListener('abort', () => stopp.abort());   // z. B. mitgelieferte Daten springen ein
   const start = performance.now();
-  // Ein "Läufer" pro Server: versucht es bis zu MAX_VERSUCHE mal, mit kurzer Pause nach jeder Abweisung
+  // Ein "Läufer" pro Server: fragt nach jeder Abweisung erneut, mit wachsender Pause, bis ZEITLIMIT_GESAMT
   const laeufer = async server => {
-    for (let v = 1; v <= MAX_VERSUCHE; v++) {
+    let warte = NEUVERSUCH_PAUSE;
+    for (let v = 1; ; v++) {
       if (stopp.signal.aborted) throw new Error('abgebrochen');
       try { return await einVersuch(server, abfrage, stopp.signal, name + (v > 1 ? ' (Versuch ' + v + ')' : '')); }
       catch (e) {
-        if (stopp.signal.aborted || performance.now() - start > ZEITLIMIT_GESAMT || v === MAX_VERSUCHE) throw e;
-        await pause(e.status === 429 ? NEUVERSUCH_PAUSE_429 : NEUVERSUCH_PAUSE);
+        const p = e.status === 429 ? Math.max(warte, NEUVERSUCH_PAUSE_429) : warte;
+        if (stopp.signal.aborted || performance.now() - start + p > ZEITLIMIT_GESAMT) throw e;
+        await pause(p, stopp.signal);
+        warte = Math.min(warte * 2, NEUVERSUCH_PAUSE_MAX);
       }
     }
   };
@@ -1093,9 +1074,10 @@ async function overpassWettlauf(abfrage, name) {
     stopp.abort();
     return json;
   } catch (e) {
-    // beide Hauptserver gescheitert: Ersatzserver je einmal
+    if (abbruch && abbruch.aborted) throw new Error('abgebrochen');
+    // beide Hauptserver gescheitert: Ersatzserver je einmal (kurz)
     for (const server of ERSATZ_SERVER) {
-      try { return await einVersuch(server, abfrage, new AbortController().signal, name + ' (Ersatz)'); } catch (e2) {}
+      try { return await einVersuch(server, abfrage, new AbortController().signal, name + ' (Ersatz)', ZEITLIMIT_ERSATZ); } catch (e2) {}
     }
     throw new Error('kein Server hat geantwortet');
   }
@@ -1357,7 +1339,7 @@ function verarbeiten(json, layerListe) {
   return sammlung;
 }
 
-/* ---------- Laden: die drei Hauptgruppen gleichzeitig, jede über einen anderen Server ---------- */
+/* ---------- Laden: eine Abfrage für alle Gruppen (siehe ALLE_GRUPPEN_MITLADEN) ---------- */
 let ladeLaeuft = false;
 const zwischenspeicher = {};   // welche Gruppe ist für welchen Ausschnitt schon erfolgreich geladen?
 let letzterAusschnitt = '';
@@ -1379,6 +1361,7 @@ function datenVerwerfen() {
   try { if (infoFenster) infoFenster.remove(); } catch (e) {}
   status('st-daten', 'Daten: noch nicht geladen', 'warte');
   document.getElementById('laden').textContent = 'Daten für diesen Ausschnitt laden';
+  document.getElementById('neu-laden').style.display = 'none';
 }
 let linienHalte = [];   // Haltepunkte aller geladenen Linien (für die Info beim Anklicken)
 // Welche Hauptgruppen sind eingeschaltet (mindestens ein Layer an)?
@@ -1388,16 +1371,209 @@ function aktiveGruppen() {
 
 // Eine einzige Abfrage für mehrere Gruppen bauen
 function abfrageFuer(gruppen, bbox) {
+  return '[out:json][timeout:120];' + abfrageTeile(gruppen, bbox).join('');
+}
+// Die Teile dieser Abfrage, jeder mit eigener Ausgabe ("out …;") – der Niedersachsen-Cache fragt sie einzeln
+function abfrageTeile(gruppen, bbox) {
   const regeln = gruppen.flatMap(g => alleLayerVon(g).flatMap(l => l.regeln || []));
   const mitNutzungen = gruppen.some(g => g.id === 'nutzungen');
   const normal = regeln.filter(r => !r.zuschneiden).map(r => regelZuAbfrage(r, bbox)).join('') +
                  (mitNutzungen ? HILFSREGELN.map(r => regelZuAbfrage(r, bbox)).join('') : '');
   const zuschnitt = regeln.filter(r => r.zuschneiden).map(r => regelZuAbfrage(r, bbox)).join('');
   // Gebäude-Umrisse hinten dran, abgetrennt durch Zählzeilen ("out count")
-  const umrisse = mitNutzungen ? GEBAEUDE_UMRISSE.map(u => 'out count;' + u.abfrage + '(' + bbox + ');out skel geom qt;').join('') : '';
-  return '[out:json][timeout:120];(' + normal + ');out geom qt;' +
-         (zuschnitt ? '(' + zuschnitt + ');out geom(' + bbox + ') qt;' : '') + umrisse;
+  const umrisse = mitNutzungen ? GEBAEUDE_UMRISSE.map(u => 'out count;' + u.abfrage + '(' + bbox + ');out skel geom qt;') : [];
+  return ['(' + normal + ');out geom qt;'].concat(zuschnitt ? ['(' + zuschnitt + ');out geom(' + bbox + ') qt;'] : [], umrisse);
 }
+
+/* ---------- Ausschnitt ----------
+   Der Ausschnitt wird als Text "süd,west,nord,ost" gemerkt – nach außen auf 0,001° gerundet (ca. 70–110 m).
+   So ergeben kleine Verschiebungen denselben Ausschnitt, und gespeicherte Daten werden wiedergefunden. */
+function ausschnittText(b) {
+  const ab  = x => (Math.floor(x * 1000 + 1e-6) / 1000).toFixed(3);   // 1e-6 fängt Rechen-Ungenauigkeiten ab
+  const auf = x => (Math.ceil(x * 1000 - 1e-6) / 1000).toFixed(3);
+  return [ab(b.getSouth()), ab(b.getWest()), auf(b.getNorth()), auf(b.getEast())].join(',');
+}
+// Liegt Ausschnitt "innen" ganz in Ausschnitt "aussen"?
+function enthaelt(aussen, innen) {
+  const a = aussen.split(',').map(Number), i = innen.split(',').map(Number);
+  return a[0] <= i[0] && a[1] <= i[1] && a[2] >= i[2] && a[3] >= i[3];
+}
+
+// Antwort zerlegen: Block 0 = Objekte, danach Gebäude-Umrisse (ohne Merkmale), getrennt durch Zählzeilen.
+// Dabei Unnötiges weglassen (Knotennummern, Rahmen, Linienteile außerhalb des Ausschnitts) – spart Speicher.
+function antwortZerlegen(json) {
+  const elemente = [];
+  let block = 0;
+  (json.elements || []).forEach(el => {
+    if (el.type === 'count') { block++; return; }
+    if (block > 0 && !el.tags) el.tags = GEBAEUDE_UMRISSE[block - 1].merkmal;
+    delete el.nodes; delete el.bounds;
+    if (el.members) el.members = el.members.filter(m => m.lat !== undefined || (m.geometry && m.geometry.some(p => p)));
+    elemente.push(el);
+  });
+  return elemente;
+}
+
+/* ---------- Speicher im Browser ----------
+   Jede geladene Antwort wird im Browser gespeichert (IndexedDB; geht das nicht: localStorage).
+   Lädt man denselben Ausschnitt – oder einen kleineren darin – mit denselben Gruppen noch einmal,
+   sind die Daten sofort da, auch nach einem Neustart des Browsers.
+   Ist der Speicher gesperrt oder voll (z. B. privates Fenster), wird ganz normal vom Server geladen. */
+const SPEICHER_TAGE = 14;   // so lange gelten gespeicherte Daten als aktuell
+const SPEICHER_MAX = 10;    // höchstens so viele Ausschnitte merken (die ältesten werden gelöscht)
+
+let speicherDB = null;      // wird beim ersten Gebrauch geöffnet
+function speicherOeffnen() {
+  if (!speicherDB) speicherDB = new Promise(fertig => {
+    setTimeout(() => fertig(null), 3000);   // antwortet der Browser nicht: ohne IndexedDB weiter
+    try {
+      const anfrage = indexedDB.open('locus', 1);
+      anfrage.onupgradeneeded = () => anfrage.result.createObjectStore('daten');
+      anfrage.onsuccess = () => fertig(anfrage.result);
+      anfrage.onerror = () => fertig(null);
+    } catch (e) { fertig(null); }
+  });
+  return speicherDB;
+}
+// Einen Eintrag lesen (null = nicht vorhanden)
+async function speicherLesen(name) {
+  try {
+    const db = await speicherOeffnen();
+    if (!db) return JSON.parse(localStorage.getItem('locus-' + name) || 'null');
+    return await new Promise((fertig, fehler) => {
+      const anfrage = db.transaction('daten').objectStore('daten').get(name);
+      anfrage.onsuccess = () => fertig(anfrage.result || null);
+      anfrage.onerror = () => fehler(anfrage.error);
+    });
+  } catch (e) { return null; }
+}
+// Einen Eintrag schreiben (wert = null: löschen). false = hat nicht geklappt (z. B. Speicher voll)
+async function speicherSchreiben(name, wert) {
+  try {
+    const db = await speicherOeffnen();
+    if (!db) {
+      if (wert === null) localStorage.removeItem('locus-' + name);
+      else localStorage.setItem('locus-' + name, JSON.stringify(wert));
+      return true;
+    }
+    return await new Promise((fertig, fehler) => {
+      const t = db.transaction('daten', 'readwrite');
+      if (wert === null) t.objectStore('daten').delete(name); else t.objectStore('daten').put(wert, name);
+      t.oncomplete = () => fertig(true);
+      t.onerror = t.onabort = () => fehler(t.error);
+    });
+  } catch (e) { return false; }
+}
+// Gespeicherte Daten suchen, die den Ausschnitt ganz enthalten und alle Gruppen haben (neueste zuerst)
+async function ausSpeicher(bbox, gruppen, hoechstensTage) {
+  const liste = (await speicherLesen('liste')) || [];
+  const passend = liste.filter(e => enthaelt(e.bbox, bbox) && gruppen.every(g => e.gruppen.includes(g.id)) &&
+                                    Date.now() - e.zeit < hoechstensTage * 86400000);
+  passend.sort((x, y) => y.zeit - x.zeit);
+  for (const e of passend) {
+    const elemente = await speicherLesen('daten-' + e.zeit);
+    if (elemente) return { elemente, zeit: e.zeit };
+  }
+  return null;
+}
+// Eine frisch geladene Antwort für das nächste Mal speichern
+async function inSpeicher(bbox, gruppen, elemente) {
+  let liste = (await speicherLesen('liste')) || [];
+  const zeit = Date.now();
+  let ok = await speicherSchreiben('daten-' + zeit, elemente);
+  if (!ok && liste.length) {   // Speicher voll? -> alte Ausschnitte löschen und noch einmal versuchen
+    for (const e of liste) await speicherSchreiben('daten-' + e.zeit, null);
+    liste = [];
+    ok = await speicherSchreiben('daten-' + zeit, elemente);
+  }
+  if (!ok) return;
+  liste.push({ zeit, bbox, gruppen: gruppen.map(g => g.id) });
+  while (liste.length > SPEICHER_MAX) await speicherSchreiben('daten-' + liste.shift().zeit, null);
+  await speicherSchreiben('liste', liste);
+}
+const datumText = zeit => new Date(zeit).toLocaleDateString('de-DE') + ', ' +
+  new Date(zeit).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+/* ---------- Mitgelieferte Daten (Notfall für die Demo) ----------
+   Für den Demo-Ort (Berlin, Kollwitzplatz) liegen Daten als Datei bei: LOCUS_demo_daten.js (neben dieser Datei).
+   Sie springen nur ein, wenn die Server nach NOTFALL_NACH noch nicht geantwortet haben – oder gar nicht.
+   Fehlt die Datei, wird ganz normal geladen. */
+const MITGELIEFERT = { datei: 'LOCUS_demo_daten.js', bbox: '52.532,13.408,52.541,13.427' };
+const NOTFALL_NACH = 30000;   // ms – so lange wird am Demo-Ort auf die Server gewartet (0 = gleich die mitgelieferten Daten)
+
+// Mitgelieferte Daten holen, falls sie den Ausschnitt und alle Gruppen abdecken (sonst null)
+function mitgeliefertFuer(bbox, gruppen) {
+  if (!enthaelt(MITGELIEFERT.bbox, bbox)) return Promise.resolve(null);
+  return new Promise(fertig => {
+    const pruefen = () => { const m = window.LOCUS_MITGELIEFERT; fertig(m && gruppen.every(g => m.gruppen.includes(g.id)) ? m : null); };
+    if (window.LOCUS_MITGELIEFERT) return pruefen();
+    const skript = document.createElement('script');   // Datei erst jetzt laden – sie ist groß
+    skript.src = MITGELIEFERT.datei;
+    skript.onload = pruefen;
+    skript.onerror = () => fertig(null);
+    document.head.appendChild(skript);
+  });
+}
+
+/* ---------- Niedersachsen-Cache ----------
+   Für die großen Städte Niedersachsens (mit 3 km Rand) liegen die OpenStreetMap-Daten fertig vorbereitet auf GitHub Pages,
+   jede Woche neu (github.com/Jade-HS-Vibecoding-WPK/niedersachsen-cache). Dann entfällt die Warteschlange der Server.
+   Der Cache kennt "out count" und "out geom(Ausschnitt)" nicht. Deshalb wird jeder Teil der Abfrage einzeln gefragt und
+   die Antwort so zusammengesetzt, wie sie von Overpass käme – antwortZerlegen() bleibt unverändert.
+   null = nicht im Cache (anderer Ort, Netz weg, Skript nicht geladen, älterer Browser) -> wie bisher live laden.
+   Achtung bei neuen Layern: Im Cache sind nur Objekte mit bestimmten Merkmalen (building, highway, railway, amenity, shop,
+   leisure, landuse, natural, place, tourism, healthcare … – Liste im README des Caches). Regeln nur mit anderen Merkmalen
+   (z. B. barrier, power, historic) fänden dort nichts – dann die Liste im Cache ergänzen lassen. */
+async function ausNdsCache(gruppen, bbox) {
+  if (!window.NdsCache) return null;
+  const teile = abfrageTeile(gruppen, bbox);
+  const antworten = await Promise.all(teile.map(t =>
+    NdsCache.overpass('[out:json];' + t.replace('out count;', '').replace('out geom(' + bbox + ')', 'out geom'))));
+  if (antworten.some(a => !a)) return null;   // fehlt ein Teil, wird alles live geladen
+  const elemente = [];
+  teile.forEach((t, i) => {
+    if (t.startsWith('out count;')) elemente.push({ type: 'count' });   // Zählzeile = Trenner, wie bei Overpass
+    antworten[i].elements.forEach(el => elemente.push(t.includes('out geom(') ? aufAusschnitt(el, bbox) : el));
+  });
+  return { elements: elemente, stand: NdsCache.stand };
+}
+// Wie Overpass "out geom(Ausschnitt)": Linien auf den Ausschnitt kürzen. Ein Punkt bleibt, wenn er selbst oder ein
+// Nachbarpunkt im Ausschnitt liegt, sonst null (= Lücke). Haltepunkte behalten ihre Lage nur im Ausschnitt.
+function aufAusschnitt(el, bbox) {
+  const [s, w, n, o] = bbox.split(',').map(Number);
+  const drin = p => p && p.lat >= s && p.lat <= n && p.lon >= w && p.lon <= o;
+  el.members = (el.members || []).map(m =>
+    m.type === 'way' && m.geometry ? Object.assign({}, m, { geometry: m.geometry.map((p, i, g) => drin(p) || drin(g[i - 1]) || drin(g[i + 1]) ? p : null) }) :
+    m.type === 'node' && !drin(m) ? { type: m.type, ref: m.ref, role: m.role } : m);
+  return el;
+}
+
+// Daten für Gruppen und Ausschnitt besorgen: zuerst aus dem Speicher im Browser, dann aus dem Niedersachsen-Cache,
+// sonst vom Server. Antwortet kein Server (am Demo-Ort: nicht innerhalb von NOTFALL_NACH), sind gespeicherte oder
+// mitgelieferte Daten besser als gar keine.
+async function datenBesorgen(gruppen, bbox, namen, frisch) {
+  const gespeichert = frisch ? null : await ausSpeicher(bbox, gruppen, SPEICHER_TAGE);
+  if (gespeichert) return { elemente: gespeichert.elemente, gespeichert: gespeichert.zeit };
+  const ausCache = frisch ? null : await ausNdsCache(gruppen, bbox);   // "Neu vom Server laden": am Cache vorbei
+  if (ausCache) return { elemente: antwortZerlegen(ausCache), stand: ausCache.stand };
+  const mitgeliefert = mitgeliefertFuer(bbox, gruppen);   // Datei im Hintergrund holen – die Server werden sofort gefragt
+  const abbruch = new AbortController();
+  const uhr = frisch ? null : setTimeout(async () => { if (await mitgeliefert) abbruch.abort(); }, NOTFALL_NACH);   // "Neu vom Server laden": voll warten
+  try {
+    return { elemente: antwortZerlegen(await overpassWettlauf(abfrageFuer(gruppen, bbox), namen, abbruch.signal)), neu: true };
+  } catch (e) {
+    const notfall = await mitgeliefert;
+    const alt = (await ausSpeicher(bbox, gruppen, Infinity)) || notfall;
+    if (!alt) throw e;
+    return { elemente: alt.elemente, gespeichert: alt.zeit, notfall: true, mitgeliefert: alt === notfall };
+  } finally { clearTimeout(uhr); }
+}
+
+/* Ladetests 18.11. abends: jede Abfrage wartet erst einmal 35–45 s in der Warteschlange der Server –
+   egal wie groß sie ist (selbst eine leere Abfrage). Mehr Gruppen kosten dagegen nur wenige Sekunden.
+   true = beim Laden immer alle drei Gruppen mitladen: Später eingeschaltete Gruppen sind dann sofort da
+          (spart in der Demo eine ganze Wartezeit). false = nur die eingeschalteten Gruppen laden. */
+const ALLE_GRUPPEN_MITLADEN = true;
 
 let nachladenWartet = false;   // wurde während des Ladens eine weitere Gruppe eingeschaltet?
 
@@ -1406,7 +1582,9 @@ async function datenLaden(grenzen) {
   const knopf = document.getElementById('laden');
   // normalerweise der sichtbare Ausschnitt; beim PDF-Export der Rahmen; beim Nachladen der schon geladene Ausschnitt
   const b = grenzen && grenzen.getSouth ? grenzen : karte.getBounds();
-  const bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(x => x.toFixed(6)).join(',');
+  let bbox = ausschnittText(b);
+  // Liegt der Ausschnitt ganz in den schon geladenen Daten (z. B. nach dem Hineinzoomen)? Dann diese weiter benutzen
+  if (geladenerAusschnitt && enthaelt(geladenerAusschnitt, bbox)) bbox = geladenerAusschnitt;
 
   // Nur eingeschaltete Gruppen laden
   const gewaehlt = aktiveGruppen();
@@ -1419,8 +1597,8 @@ async function datenLaden(grenzen) {
     datenVerwerfen();
     geladenerAusschnitt = bbox;
   }
-  // Was fehlt für diesen Ausschnitt noch?
-  const fehlend = gewaehlt.filter(g => !zwischenspeicher[g.id + '|' + bbox]);
+  // Was fehlt für diesen Ausschnitt noch? (mit ALLE_GRUPPEN_MITLADEN auch die ausgeschalteten Gruppen)
+  const fehlend = (ALLE_GRUPPEN_MITLADEN ? LAYER_GRUPPEN : gewaehlt).filter(g => !zwischenspeicher[g.id + '|' + bbox]);
   if (!fehlend.length) { status('st-daten', 'Daten: alles Eingeschaltete ist geladen ✓', 'ok'); return; }
 
   ladeLaeuft = true;
@@ -1434,19 +1612,20 @@ async function datenLaden(grenzen) {
 
   let fehler = false;
   try {
-    const json = await overpassWettlauf(abfrageFuer(fehlend, bbox), namen);
+    const daten = await datenBesorgen(fehlend, bbox, namen, grenzen && grenzen.frisch);
     if (bbox !== geladenerAusschnitt) return;   // inzwischen anderer Ort gewählt
-    // Antwort zerlegen: Block 0 = Objekte, Block 1/2 = Gebäude-Umrisse (ohne Merkmale)
-    const elemente = [];
-    let block = 0;
-    (json.elements || []).forEach(el => {
-      if (el.type === 'count') { block++; return; }
-      if (block > 0 && !el.tags) el.tags = GEBAEUDE_UMRISSE[block - 1].merkmal;
-      elemente.push(el);
-    });
+    if (daten.stand) {   // Niedersachsen-Cache: bis gut eine Woche alt – „Neu vom Server laden“ holt den neuesten Stand
+      protokoll(namen + ' → Daten aus dem Niedersachsen-Cache (OpenStreetMap, Stand ' + datumText(daten.stand) + ') ✓');
+      document.getElementById('neu-laden').style.display = 'block';
+    }
+    if (daten.gespeichert) {
+      protokoll(namen + ' → ' + (daten.mitgeliefert ? 'Server zu langsam – mitgelieferte Daten vom ' :
+        daten.notfall ? 'kein Server erreichbar – ältere gespeicherte Daten vom ' : 'gespeicherte Daten vom ') + datumText(daten.gespeichert) + ' ✓');
+      document.getElementById('neu-laden').style.display = 'block';
+    }
     await pause(20);
     const layerListe = fehlend.flatMap(g => alleLayerVon(g).filter(l => l.regeln));
-    const sammlung = verarbeiten({ elements: elemente }, layerListe);   // Zuordnung unverändert
+    const sammlung = verarbeiten({ elements: daten.elemente }, layerListe);   // Zuordnung unverändert
     layerListe.slice().reverse().forEach(l => {
       geladeneDaten[l.id] = { type: 'FeatureCollection', features: sammlung[l.id] };
       layerZeichnen(l);
@@ -1456,8 +1635,11 @@ async function datenLaden(grenzen) {
     fehlend.forEach(g => zwischenspeicher[g.id + '|' + bbox] = true);
     ebenenOrdnen();
     const s = Math.round((performance.now() - start) / 1000);
-    status('st-daten', 'Daten: ' + namen + ' ✓ (' + s + ' s)', 'ok');
-    meldung('Geladen in ' + s + ' Sekunden: ' + namen);
+    const vom = daten.gespeichert ? (daten.mitgeliefert ? 'mitgeliefert' : 'gespeichert') + ' vom ' + datumText(daten.gespeichert) :
+                daten.stand ? 'aus dem Niedersachsen-Cache, Stand ' + datumText(daten.stand) : '';
+    status('st-daten', 'Daten: ' + namen + ' ✓ (' + (vom || s + ' s') + ')', 'ok');
+    meldung(vom ? 'Daten ' + vom + ' gezeigt: ' + namen : 'Geladen in ' + s + ' Sekunden: ' + namen);
+    if (daten.neu) inSpeicher(bbox, fehlend, daten.elemente);   // für das nächste Mal merken (im Hintergrund)
   } catch (e) {
     console.warn(e);
     fehler = true;
@@ -2100,9 +2282,7 @@ auswahl.addEventListener('change', () => {
 function anzeigeAktualisieren() {
   const m = aktuellerMassstab();
   if (letzterAusschnitt && !ladeLaeuft) {
-    const b = karte.getBounds();
-    const jetzt = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(x => x.toFixed(6)).join(',');
-    if (jetzt !== letzterAusschnitt) { letzterAusschnitt = ''; document.getElementById('laden').textContent = 'Daten für diesen Ausschnitt laden'; }
+    if (!enthaelt(letzterAusschnitt, ausschnittText(karte.getBounds()))) { letzterAusschnitt = ''; document.getElementById('laden').textContent = 'Daten für diesen Ausschnitt laden'; }
   }
   document.getElementById('massstab-jetzt').textContent = '1 : ' + schoeneZahl(m);
 
@@ -2112,7 +2292,10 @@ function anzeigeAktualisieren() {
   const hinweis = document.getElementById('laden-hinweis');
   if (m <= MAX_MASSSTAB_FUER_DATEN * 1.03) {
     knopf.disabled = false;
-    hinweis.textContent = 'Lädt die eingeschalteten Gruppen für den sichtbaren Ausschnitt. Später eingeschaltete Gruppen werden automatisch nachgeladen.';
+    hinweis.textContent = (ALLE_GRUPPEN_MITLADEN
+      ? 'Lädt alle Gruppen für den sichtbaren Ausschnitt in einer Abfrage – angezeigt wird, was im Layer-Menü eingeschaltet ist.'
+      : 'Lädt die eingeschalteten Gruppen für den sichtbaren Ausschnitt. Später eingeschaltete Gruppen werden automatisch nachgeladen.') +
+      ' Schon einmal geladene Ausschnitte sind sofort da (im Browser gespeichert).';
   } else {
     knopf.disabled = true;
     hinweis.textContent = 'Zum Laden auf 1 : 5.000 oder näher heranzoomen.';
@@ -2298,6 +2481,13 @@ fach.addEventListener('pointerdown', e => ziehen(e, fach));
 
 /* ---------- Knöpfe & Meldungen ---------- */
 document.getElementById('laden').addEventListener('click', datenLaden);
+// Gespeicherte Daten ersetzen: dieselben Gruppen für denselben Ausschnitt frisch vom Server holen
+document.getElementById('neu-laden').addEventListener('click', () => {
+  if (!geladenerAusschnitt || ladeLaeuft) return;
+  const [s, w, n, o] = geladenerAusschnitt.split(',').map(Number);
+  datenVerwerfen();
+  datenLaden({ getSouth: () => s, getWest: () => w, getNorth: () => n, getEast: () => o, frisch: true });
+});
 
 document.getElementById('klappknopf').addEventListener('click', () => {
   document.getElementById('panel').classList.toggle('zu');
@@ -2350,12 +2540,12 @@ const SCHRITTE = [
     ziel: () => $('layermenue'), fertig: () => aktiv.size > 0,
     zeig: () => { gruppeKasten('mobilitaet').classList.add('offen'); gruppeAn('mobilitaet'); gruppeAn('gruen'); } },
   { titel: 'Daten laden',
-    text: 'Klicke „Daten für diesen Ausschnitt laden“. LOCUS fragt zwei Server gleichzeitig, der schnellere gewinnt. Meist dauert das 20–30 Sekunden – unten im Status siehst du das Protokoll.',
+    text: 'Klicke „Daten für diesen Ausschnitt laden“. LOCUS fragt zwei Server gleichzeitig, der schnellere gewinnt. Meist dauert das 20–30 Sekunden – unten im Status siehst du das Protokoll. Beim zweiten Mal sind die Daten sofort da (im Browser gespeichert).',
     ziel: () => $('laden'), hinweis: ladeHinweis,
     fertig: () => aktiveGruppen().length > 0 && aktiveGruppen().every(g => gruppeGeladen(g.id)),
     zeig: () => { if (!ladeLaeuft) $('laden').click(); } },
   { titel: 'Nutzungen dazunehmen',
-    text: 'Schalte jetzt die Gruppe „Nutzungen“ ein. LOCUS lädt sie automatisch nach – kein Knopf nötig. Danach sind die Gebäude nach ihrer Nutzung eingefärbt.',
+    text: 'Schalte jetzt die Gruppe „Nutzungen“ ein. LOCUS hat sie schon mitgeladen (sonst lädt es sie automatisch nach) – kein Knopf nötig. Danach sind die Gebäude nach ihrer Nutzung eingefärbt.',
     ziel: () => gruppeKasten('nutzungen'), hinweis: ladeHinweis, fertig: () => gruppeGeladen('nutzungen'),
     zeig: () => gruppeAn('nutzungen') },
   { titel: 'Anklicken',

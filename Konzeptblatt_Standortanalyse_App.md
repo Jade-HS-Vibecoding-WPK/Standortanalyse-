@@ -6,6 +6,16 @@ Stand: 18.11.2026, 15:00 – Schritte 1–7 fertig und getestet; Swiss Style, St
 - `claude/LOCUS_demo.html` – Demo mit Anleitung (Vorführmodus)
 (ältere Dateien `standortanalyse_zwischenstand_2026-11-16/17.html` sind überholt)
 
+## Branch `schneller-laden`: schneller laden (18.11.2026)
+**Nur in diesem Branch.** Auf `main` liegt unverändert der alte Stand – ohne alle Punkte dieses Abschnitts.
+- **Reihenfolge beim Laden:** Speicher im Browser → Niedersachsen-Cache → Overpass live (Wettlauf, Neuversuche) → Notfall-Datei (nur Demo-Ort)
+- **Speicher im Browser** (IndexedDB, sonst localStorage): geladene Ausschnitte 14 Tage, höchstens 10; derselbe oder ein kleinerer Ausschnitt ist sofort da (ca. 0,5 s, ohne Server). „Neu vom Server laden“ holt frische Daten.
+- **Niedersachsen-Cache** (https://jade-hs-vibecoding-wpk.github.io/niedersachsen-cache/): Für Hannover, Braunschweig, Oldenburg, Osnabrück, Wolfsburg, Göttingen, Salzgitter, Hildesheim, Wilhelmshaven und Delmenhorst (jeweils mit ca. 3 km Rand) kommen die Daten fertig vorbereitet von GitHub Pages – ca. 1–3 s statt 20–60 s. Datenstand bis gut eine Woche alt (wöchentlich neu); der Status zeigt „Daten aus dem Niedersachsen-Cache (OpenStreetMap, Stand …)“, „Neu vom Server laden“ holt den neuesten Stand live. Anderswo (z. B. Berlin, Elsfleth), ohne Internetzugang zum Cache oder in älteren Browsern (Safari vor 16.4, Firefox vor 113) wird wie bisher live geladen.
+- **Neuversuche mit wachsender Pause** (3, 6, 12, 24, 30 … s, bis 180 s gesamt), Ersatzserver je 40 s – statt nach 5 schnellen Abweisungen aufzugeben
+- **Alle drei Gruppen auf einmal** (`ALLE_GRUPPEN_MITLADEN = true`): Beim Laden kommen immer Mobilität, Grün und Nutzungen in einer Abfrage, angezeigt wird, was eingeschaltet ist; später eingeschaltete Gruppen sind sofort da. **Damit stimmt „geladen wird nur, was eingeschaltet ist“ nicht mehr.** Altes Verhalten: in der HTML-Datei die Zeile `const ALLE_GRUPPEN_MITLADEN = true;` auf `false` ändern (in App und Demo).
+- **Notfall-Datei für den Demo-Ort** `LOCUS_demo_daten.js` (Kollwitzplatz, alle Gruppen, Stand 18.11.2026): springt ein, wenn die Server nach 30 s nicht geantwortet haben. Sie muss **neben der HTML-Datei liegen** (gleicher Ordner – beim Doppelklick wie auf GitHub Pages); fehlt sie, wird einfach normal geladen.
+- Aufgeräumt: ungenutzte Warteschlange und Serverbewertung entfernt; gespeicherte Daten verkleinert (leere Linienteile außerhalb des Ausschnitts)
+
 ## Nächstes Mal weitermachen – hier ansetzen
 1. Dateien herunterladen und im Browser öffnen (Safari/Firefox).
 2. **Demo testen** (mit echten Daten noch nicht ausprobiert): alle 12 Schritte selbst machen und einmal nur mit „Zeig’s mir“.
@@ -44,9 +54,9 @@ Stand: 18.11.2026, 15:00 – Schritte 1–7 fertig und getestet; Swiss Style, St
 - Erscheint bisher nicht im PDF
 
 ## Grundprinzip
-- Funktioniert für alle Orte in Deutschland, Daten live aus OpenStreetMap über Overpass (Internet nötig)
+- Funktioniert für alle Orte in Deutschland, Daten live aus OpenStreetMap über Overpass (Internet nötig); Branch `schneller-laden`: große Städte Niedersachsens aus dem Niedersachsen-Cache
 - **Ladezeit ca. 20–25 s für alle drei Gruppen** bei 1:2.500 (vorher 1–2 min)
-- Erst Layer einschalten, dann „Daten für diesen Ausschnitt laden“ – geladen wird nur, was eingeschaltet ist; später eingeschaltete Gruppen werden automatisch nachgeladen
+- Erst Layer einschalten, dann „Daten für diesen Ausschnitt laden“ – geladen wird nur, was eingeschaltet ist; später eingeschaltete Gruppen werden automatisch nachgeladen (**Branch `schneller-laden`:** es werden immer alle drei Gruppen geladen, siehe `ALLE_GRUPPEN_MITLADEN` oben)
 - Neuer Ort/Ausschnitt → alte Daten werden verworfen; bei Fehlern „Fehlende Daten nachladen“
 - Info-Fenster beim Anklicken: Kategorie, Name, Art, Adresse, Öffnungszeiten, Linien an Haltestellen, Link zu OSM; „vermutete“ Wohnhäuser sind gekennzeichnet
 
@@ -77,7 +87,7 @@ Stand: 18.11.2026, 15:00 – Schritte 1–7 fertig und getestet; Swiss Style, St
 ## Technik
 - Eine HTML-Datei, per Doppelklick im Browser (getestet: Firefox/Windows, Safari/Mac)
 - MapLibre GL 4.7.1; Grundkarte OpenFreeMap Positron (Notfall Esri Light Gray); Suche Nominatim, Ersatz Photon; jsPDF 2.5.1; d3 v7 + world-atlas für den Globus
-- **Laden:** eine Abfrage für alle eingeschalteten Gruppen; „Wettlauf“ overpass-api.de gegen maps.mail.ru, erste Antwort gewinnt; abgewiesener Server nach 3 s (bei 429 nach 10 s) erneut, max. 5 Versuche; Zeitlimit 120 s pro Versuch, 180 s gesamt; danach private.coffee und kumi.systems je einmal
+- **Laden** (Stand `main`; Branch `schneller-laden` siehe oben): eine Abfrage für alle eingeschalteten Gruppen; „Wettlauf“ overpass-api.de gegen maps.mail.ru, erste Antwort gewinnt; abgewiesener Server nach 3 s (bei 429 nach 10 s) erneut, max. 5 Versuche; Zeitlimit 120 s pro Versuch, 180 s gesamt; danach private.coffee und kumi.systems je einmal
 - Gebäudeumrisse ohne Merkmale („skel“) → weniger Daten
 - Statusanzeige + Ladeprotokoll in der Seitenleiste
 
