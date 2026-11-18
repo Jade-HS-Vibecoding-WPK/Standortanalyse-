@@ -1,0 +1,2296 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOCUS – Standortanalyse</title>
+<!-- Die Kartenbibliothek "MapLibre" wird weiter unten per Skript geladen,
+     mit Ersatzquellen, falls ein Server nicht erreichbar ist. -->
+<style>
+  /* ====== FARBEN & GRUNDLAYOUT (hier könnt ihr später Werte ändern) ====== */
+  :root {
+    --hintergrund: #ffffff;
+    --text: #2b2b2b;
+    --text-hell: #7a7a7a;
+    --linie: #e3e3e3;
+    --akzent: #4a4a4a;
+    --panel-breite: 320px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; color: var(--text); background: var(--hintergrund); }
+  #app { display: flex; height: 100%; position: relative; }
+
+  /* ====== SEITENLEISTE ====== */
+  #panel {
+    width: var(--panel-breite); flex-shrink: 0; height: 100%; overflow-y: auto;
+    border-right: 1px solid var(--linie); padding: 20px; background: #fff; z-index: 10;
+    transition: margin-left .25s;
+  }
+  #panel.zu { margin-left: calc(-1 * var(--panel-breite)); }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 2px; letter-spacing: .2px; }
+  .untertitel { font-size: 12px; color: var(--text-hell); margin-bottom: 22px; }
+  .abschnitt { margin-bottom: 22px; }
+  .abschnitt-titel { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-hell); margin-bottom: 8px; }
+
+  input[type=text], select {
+    width: 100%; padding: 10px 12px; font-size: 15px; border: 1px solid var(--linie);
+    border-radius: 6px; background: #fff; color: var(--text); outline: none;
+  }
+  input[type=text]:focus, select:focus { border-color: #b5b5b5; }
+
+  #treffer { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid var(--linie); border-radius: 6px; display: none; max-height: 240px; overflow-y: auto; }
+  #treffer li { padding: 9px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid #f1f1f1; }
+  #treffer li:last-child { border-bottom: none; }
+  #treffer li:hover { background: #f6f6f6; }
+  #treffer .klein { color: var(--text-hell); font-size: 11px; display: block; }
+
+  .massstab-anzeige { font-size: 13px; color: var(--text-hell); margin-top: 6px; }
+  .massstab-anzeige b { color: var(--text); font-weight: 600; }
+
+  button.haupt {
+    width: 100%; padding: 12px; font-size: 14px; border-radius: 6px; border: none;
+    background: var(--akzent); color: #fff; cursor: pointer;
+  }
+  button.haupt:disabled { background: #d4d4d4; cursor: not-allowed; }
+  .hinweis { font-size: 12px; color: var(--text-hell); margin-top: 6px; line-height: 1.4; }
+
+  #status { font-size: 12px; line-height: 1.6; border: 1px solid var(--linie); border-radius: 6px; padding: 10px 12px; }
+  #status .ok { color: #4f8a5b; }
+  #status .fehler { color: #b5524a; }
+  #status .warte { color: var(--text-hell); }
+  #ladeprotokoll { margin-top: 6px; font-size: 11px; color: var(--text-hell); line-height: 1.5; }
+
+  /* PDF-Export */
+  .pdf-zeile { display: flex; gap: 6px; }
+  .pdf-zeile select { flex: 1; }
+  button.neben { width: 100%; margin-top: 6px; padding: 9px; font-size: 13px; border-radius: 6px; border: 1px solid var(--akzent); background: #fff; color: var(--akzent); cursor: pointer; }
+  #panel { position: relative; }   /* damit die Seitenleiste über der Rahmen-Abdunklung liegt */
+  #pdfrahmen { position: absolute; display: none; z-index: 5; pointer-events: none;
+               border: 2px dashed #2b2b2b; box-shadow: 0 0 0 9999px rgba(255,255,255,.35); }
+  #pdfrahmen-text { position: absolute; left: 0; top: -24px; background: #2b2b2b; color: #fff; font-size: 12px; padding: 3px 8px; border-radius: 3px; white-space: nowrap; }
+
+  .platzhalter { border: 1px dashed var(--linie); border-radius: 6px; padding: 14px; font-size: 12px; color: var(--text-hell); text-align: center; }
+
+  /* ====== SCHALTER (Kippschalter) ====== */
+  .schalter { position: relative; width: 34px; height: 20px; flex-shrink: 0; }
+  .schalter input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .schalter span {
+    position: absolute; inset: 0; background: #d9d9d9; border-radius: 20px; cursor: pointer; transition: background .2s;
+  }
+  .schalter span::before {
+    content: ""; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%; transition: transform .2s; box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  }
+  .schalter input:checked + span { background: var(--akzent); }
+  .schalter input:checked + span::before { transform: translateX(14px); }
+  .schalter.teilweise span { background: #a8a8a8; }
+  .schalter.teilweise span::before { transform: translateX(7px); }
+
+  /* ====== LAYER-MENÜ ====== */
+  .zeile { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 14px; }
+  .zeile .name { flex: 1; cursor: pointer; }
+  .gruppe { border: 1px solid var(--linie); border-radius: 6px; margin-bottom: 8px; }
+  .gruppe-kopf { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: pointer; user-select: none; }
+  .gruppe-kopf .pfeil { width: 12px; font-size: 10px; color: var(--text-hell); transition: transform .2s; }
+  .gruppe.offen .pfeil { transform: rotate(90deg); }
+  .gruppe-kopf .gname { flex: 1; font-size: 14px; font-weight: 600; }
+  .gruppe-inhalt { display: none; padding: 0 12px 8px 32px; }
+  .gruppe.offen .gruppe-inhalt { display: block; }
+  .anz { font-size: 11px; color: var(--text-hell); min-width: 18px; text-align: right; }
+  .untergruppe-titel { font-size: 11px; color: var(--text-hell); text-transform: uppercase; letter-spacing: .8px; margin: 8px 0 2px; }
+
+  /* Legenden-Symbole: Fläche, Linie, Punkt */
+  .sym { flex-shrink: 0; display: inline-block; }
+  .sym.flaeche { width: 14px; height: 14px; border-radius: 2px; }
+  .sym.linie   { width: 18px; height: 4px; border-radius: 2px; }
+  .sym.punkt   { width: 10px; height: 10px; border-radius: 50%; margin: 0 2px; }
+
+  /* ====== LEGENDE AUF DER KARTE ====== */
+  #legende {
+    position: absolute; right: 12px; bottom: 34px; z-index: 15; background: rgba(255,255,255,.96);
+    border: 1px solid var(--linie); border-radius: 6px; padding: 12px 14px; min-width: 180px;
+    max-height: 60%; overflow-y: auto; font-size: 12px; display: none; box-shadow: 0 2px 10px rgba(0,0,0,.05);
+  }
+  #legende h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-hell); font-weight: 600; }
+  #legende .lg-gruppe { font-weight: 600; margin: 8px 0 3px; }
+  #legende .lg-zeile { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+
+  /* ====== INFO-FENSTER BEIM ANKLICKEN ====== */
+  .maplibregl-popup-content { padding: 12px 14px; border-radius: 6px; box-shadow: 0 2px 12px rgba(0,0,0,.12); font-family: inherit; max-width: 280px; }
+  .info-eintrag + .info-eintrag { border-top: 1px solid var(--linie); margin-top: 10px; padding-top: 10px; }
+  .info-kat { display: flex; align-items: center; gap: 7px; font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--text-hell); }
+  .info-name { font-size: 14px; font-weight: 600; margin: 4px 0 4px; color: var(--text); }
+  .info-zeile { font-size: 12px; color: var(--text); line-height: 1.5; }
+  .info-zeile span { color: var(--text-hell); }
+  .info-linien { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .info-linien b { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 3px; color: #2b2b2b; }
+  .info-link { font-size: 11px; color: var(--text-hell); margin-top: 6px; display: inline-block; }
+
+  /* ====== KARTE ====== */
+  #karte { flex: 1; height: 100%; background: #fff; }
+
+  /* Knopf zum Ein-/Ausklappen der Seitenleiste (v. a. für Tablet) */
+  #klappknopf {
+    position: absolute; top: 12px; left: calc(var(--panel-breite) + 12px); z-index: 20;
+    background: #fff; border: 1px solid var(--linie); border-radius: 6px; padding: 7px 10px;
+    font-size: 13px; cursor: pointer; transition: left .25s;
+  }
+  #panel.zu ~ #klappknopf { left: 12px; }
+
+  /* Knopf zum Ein-/Ausblenden der Legende (neben dem ☰-Knopf) */
+  #legendenknopf {
+    position: absolute; top: 12px; left: calc(var(--panel-breite) + 56px); z-index: 20;
+    background: #fff; border: 1px solid var(--linie); border-radius: 6px; padding: 7px 12px;
+    font-size: 13px; cursor: pointer; transition: left .25s; color: var(--text);
+  }
+  #panel.zu ~ #legendenknopf { left: 56px; }
+  #legendenknopf.an { background: var(--akzent); color: #fff; border-color: var(--akzent); }
+
+  /* Kleine Meldung unten in der Mitte */
+  #meldung {
+    position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); z-index: 30;
+    background: rgba(43,43,43,.9); color: #fff; font-size: 13px; padding: 9px 14px; border-radius: 6px;
+    display: none; max-width: 80%; text-align: center;
+  }
+
+  /* Tablet / schmale Bildschirme: Leiste liegt über der Karte */
+  @media (max-width: 800px) {
+    #panel { position: absolute; left: 0; top: 0; box-shadow: 2px 0 12px rgba(0,0,0,.08); }
+  }
+
+  /* =====================================================================
+     SWISS STYLE – LOCUS
+     Raster, Helvetica, Schwarz/Weiß, dünne Linien, Rot nur als Akzent
+     ===================================================================== */
+  :root {
+    --schrift: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --schwarz: #111111;
+    --rot: #e2001a;
+    --grau: #8a8a8a;
+    --linie: #d9d9d9;
+    --akzent: #111111;
+    --panel-breite: 330px;
+  }
+  html, body { font-family: var(--schrift); color: var(--schwarz); -webkit-font-smoothing: antialiased; }
+  .punkt { color: var(--rot); }
+
+  /* Seitenleiste */
+  #panel { padding: 0 24px 24px; border-right: 1px solid var(--schwarz); counter-reset: abschnitt; }
+  #panel .kopf { padding: 22px 0 18px; border-bottom: 3px solid var(--schwarz); margin-bottom: 0; }
+  #panel h1 { font-size: 34px; font-weight: 700; letter-spacing: -1px; line-height: 1; margin: 0 0 8px; cursor: pointer; }
+  #panel .untertitel { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--grau); margin: 0; }
+  .abschnitt { border-top: 1px solid var(--schwarz); padding-top: 10px; margin: 0 0 22px; }
+  #panel .kopf + .abschnitt { border-top: none; }
+  .abschnitt-titel { counter-increment: abschnitt; font-size: 11px; font-weight: 700; color: var(--schwarz);
+                     text-transform: uppercase; letter-spacing: .08em; margin-bottom: 10px; display: flex; gap: 10px; }
+  .abschnitt-titel::before { content: counter(abschnitt, decimal-leading-zero); color: var(--rot); font-weight: 700; }
+
+  input[type=text], select {
+    border: none; border-bottom: 1px solid var(--schwarz); border-radius: 0; padding: 8px 0; font-size: 15px;
+    font-family: var(--schrift); background: transparent; margin-top: 4px;
+  }
+  input[type=text]:focus, select:focus { border-bottom: 2px solid var(--rot); }
+  select { -webkit-appearance: none; appearance: none; cursor: pointer;
+           background-image: linear-gradient(45deg, transparent 50%, #111 50%), linear-gradient(135deg, #111 50%, transparent 50%);
+           background-position: calc(100% - 10px) 55%, calc(100% - 5px) 55%; background-size: 5px 5px; background-repeat: no-repeat; }
+  #treffer { border: 1px solid var(--schwarz); border-radius: 0; }
+  #treffer li:hover { background: #f2f2f2; }
+
+  button.haupt { border-radius: 0; background: var(--schwarz); text-transform: uppercase; letter-spacing: .08em;
+                 font-size: 12px; font-weight: 700; padding: 13px; font-family: var(--schrift); margin-top: 10px; transition: background .15s; }
+  button.haupt:hover:not(:disabled) { background: var(--rot); }
+  button.haupt:disabled { background: #cfcfcf; }
+  button.neben { border-radius: 0; border: 1px solid var(--schwarz); color: var(--schwarz); text-transform: uppercase;
+                 letter-spacing: .08em; font-size: 11px; font-weight: 700; font-family: var(--schrift); }
+  .hinweis { color: var(--grau); font-size: 12px; }
+  .massstab-anzeige { color: var(--grau); font-size: 12px; }
+  .pdf-zeile { gap: 12px; }
+
+  /* Schalter: rechteckig, schwarz */
+  .schalter span { border-radius: 0; background: #d0d0d0; }
+  .schalter span::before { border-radius: 0; box-shadow: none; }
+  .schalter input:checked + span { background: var(--schwarz); }
+  .schalter.teilweise span { background: #8a8a8a; }
+
+  /* Layer-Menü: Linien statt Kästen */
+  .gruppe { border: none; border-bottom: 1px solid var(--linie); border-radius: 0; margin: 0; }
+  .gruppe:first-child { border-top: 1px solid var(--linie); }
+  .gruppe-kopf { padding: 10px 0; }
+  .gruppe-kopf .gname { font-weight: 700; font-size: 14px; }
+  .gruppe-kopf .pfeil { color: var(--schwarz); }
+  .gruppe-inhalt { padding: 0 0 8px 20px; }
+  .untergruppe-titel { color: var(--grau); font-size: 10px; letter-spacing: .1em; }
+  .zeile { padding: 6px 0; font-size: 13px; }
+  .sym.flaeche { border-radius: 0; }
+
+  #status { border: none; padding: 0; font-size: 11px; }
+
+  /* Knöpfe auf der Karte */
+  #klappknopf, #legendenknopf { border-radius: 0; border: 1px solid var(--schwarz); font-family: var(--schrift);
+                                font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 8px 12px; }
+  #legendenknopf { left: calc(var(--panel-breite) + 62px); }
+  #panel.zu ~ #legendenknopf { left: 62px; }
+  #legendenknopf.an { background: var(--schwarz); color: #fff; border-color: var(--schwarz); }
+
+  /* Legende, Info-Fenster, Meldung, Rahmen */
+  #legende { border-radius: 0; border: 1px solid var(--schwarz); box-shadow: none; background: #fff; }
+  #legende h3 { color: var(--schwarz); font-weight: 700; border-bottom: 1px solid var(--schwarz); padding-bottom: 6px; margin-bottom: 4px; }
+  #legende .lg-gruppe { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .maplibregl-popup-content { border-radius: 0; border: 1px solid var(--schwarz); box-shadow: none; font-family: var(--schrift); }
+  .info-kat { color: var(--grau); }
+  .info-linien b { border-radius: 0; }
+  #meldung { border-radius: 0; background: var(--schwarz); }
+  #pdfrahmen { border: 2px solid var(--rot); }
+  #pdfrahmen-text { border-radius: 0; background: var(--rot); font-weight: 700; letter-spacing: .04em; }
+
+  /* ===================== KNÖPFE OBEN AUF DER KARTE + STANDORT-FIGUR ===================== */
+  #kartenknoepfe { position: absolute; top: 12px; left: calc(var(--panel-breite) + 12px); z-index: 20;
+                   display: flex; gap: 6px; transition: left .25s; }
+  #panel.zu ~ #kartenknoepfe { left: 12px; }
+  #kartenknoepfe #klappknopf, #kartenknoepfe #legendenknopf { position: static; left: auto; top: auto; }
+  #kartenknoepfe { align-items: stretch; }   /* Haus ist genau so hoch wie die Knöpfe */
+  #figurfach { position: relative; width: 30px; cursor: grab; touch-action: none;
+               user-select: none; -webkit-user-select: none; }
+  #figurfach .haus { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  #figurfach .haus path { fill: #fff; stroke: var(--schwarz); stroke-width: 1; vector-effect: non-scaling-stroke; transition: fill .15s; }
+  #figurfach:hover .haus path { fill: #f2f2f2; }
+  #figurfach.ziel .haus path { fill: #fde3e6; stroke: var(--rot); stroke-width: 2; }   /* Figur schwebt über dem Haus */
+  #figurfach .bewohner { position: absolute; left: 11.2px; bottom: 1px; width: 7.6px; height: 19px; transition: opacity .15s; }
+  #figurfach.leer .bewohner { opacity: 0; }
+  #figurfach.leer { cursor: default; }
+  .figur svg, #figurfach .bewohner, #figur-ziehen svg { fill: var(--rot); display: block; overflow: visible; }
+  .figur .schatten, #figur-ziehen .schatten { fill: #111; opacity: .25; }
+  #figurfach .schatten { display: none; }
+  .figur.unterwegs { visibility: hidden; }
+  #figur-ziehen { position: fixed; z-index: 2000; pointer-events: none; width: 22px; height: 55px; display: none;
+                  filter: drop-shadow(0 6px 4px rgba(0,0,0,.18)); }
+  #figur-ziehen svg { width: 100%; height: 100%; }
+  .figur { width: 22px; height: 55px; cursor: grab; }
+  .figur svg { width: 100%; height: 100%; }
+  body.figur-zieht, body.figur-zieht * { cursor: grabbing !important; }
+
+  /* ===================== STARTSEITE ===================== */
+  #startseite { position: fixed; inset: 0; z-index: 1000; background: #fff; overflow: auto; transition: opacity .5s, visibility .5s; }
+  #startseite.weg { opacity: 0; visibility: hidden; transition: opacity .8s, visibility .8s; }
+  .st-raster { min-height: 100%; box-sizing: border-box; padding: 32px 48px; display: grid;
+               grid-template-columns: repeat(12, 1fr); grid-template-rows: auto 1fr auto; column-gap: 24px; }
+  .st-oben, .st-unten { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+                        font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+  .st-oben { border-top: 3px solid var(--schwarz); padding-top: 10px; }
+  .st-unten { border-top: 1px solid var(--schwarz); padding-top: 10px; color: var(--grau); font-weight: 400; margin-top: 24px; }
+  .st-links { grid-column: 1 / 7; align-self: center; padding: 40px 0; }
+  .st-rechts { grid-column: 7 / -1; align-self: center; display: flex; flex-direction: column; align-items: center; }
+  .st-name { font-size: clamp(80px, 13vw, 210px); font-weight: 700; letter-spacing: -0.06em; line-height: .85; margin: 0 0 28px -6px; }
+  .st-lead { font-size: clamp(17px, 1.6vw, 22px); line-height: 1.35; max-width: 34em; margin: 0 0 36px; }
+  .st-spalten { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 40px; }
+  .st-spalten > div { border-top: 1px solid var(--schwarz); padding-top: 10px; font-size: 13px; line-height: 1.45; color: #333; }
+  .st-spalten .nr { display: block; color: var(--rot); font-weight: 700; font-size: 12px; margin-bottom: 6px; }
+  .st-spalten b { display: block; font-size: 15px; color: var(--schwarz); margin-bottom: 4px; }
+  #los { font-family: var(--schrift); font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
+         background: var(--schwarz); color: #fff; border: none; border-radius: 0; padding: 18px 28px; cursor: pointer; transition: background .15s; }
+  #los:hover { background: var(--rot); }
+  #los span { display: inline-block; margin-left: 10px; transition: transform .15s; }
+  #los:hover span { transform: translateX(4px); }
+  #globus { width: min(100%, 620px); height: auto; aspect-ratio: 1; }
+  .st-globus-text { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+  .rotpunkt { width: 10px; height: 10px; background: var(--rot); display: inline-block; }
+  /* Zoom-Übergang: großer Globus über der ganzen Startseite, Texte blenden aus */
+  #globus-zoom { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; display: none; pointer-events: none; z-index: 2; }
+  .st-links, .st-oben, .st-unten, .st-globus-text { transition: opacity .4s; }
+  #startseite.zoomt .st-links, #startseite.zoomt .st-oben, #startseite.zoomt .st-unten,
+  #startseite.zoomt .st-globus-text { opacity: 0; }
+  #startseite.zoomt #globus { visibility: hidden; }
+  @media (max-width: 900px) {
+    .st-raster { padding: 20px; }
+    .st-links, .st-rechts { grid-column: 1 / -1; }
+    .st-links { padding: 24px 0 8px; }
+    .st-spalten { grid-template-columns: 1fr; }
+    .st-oben, .st-unten { grid-template-columns: 1fr; gap: 4px; }
+    #globus { width: min(80vw, 420px); }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== STARTSEITE ===================== -->
+<section id="startseite">
+  <div class="st-raster">
+    <div class="st-oben">
+      <span>Standortanalyse</span><span>Deutschland</span><span>Mobilität · Grün · Nutzungen</span>
+    </div>
+    <div class="st-links">
+      <h2 class="st-name">LOCUS<span class="punkt">.</span></h2>
+      <p class="st-lead">Was liegt in der Nähe? LOCUS zeigt für jeden Ort in Deutschland, wie er angebunden ist,
+        wo es grün ist und wie die Gebäude genutzt werden – Layer für Layer, im Maßstab.</p>
+      <div class="st-spalten">
+        <div><span class="nr">01</span><b>Mobilität</b>Bus und Bahn, Hauptstraßen, Fuß- und Radwege, Haltestellen</div>
+        <div><span class="nr">02</span><b>Grün</b>Parks, Spielplätze, Aufenthaltsflächen und Bäume</div>
+        <div><span class="nr">03</span><b>Nutzungen</b>Gesundheit, Einkaufen, Freizeit, Bildung und Wohnen</div>
+      </div>
+      <button id="los">Los geht’s <span>→</span></button>
+    </div>
+    <div class="st-rechts">
+      <canvas id="globus" width="700" height="700" aria-label="Sich drehender Globus, Deutschland rot markiert"></canvas>
+      <div class="st-globus-text"><span class="rotpunkt"></span> Deutschland</div>
+    </div>
+    <div class="st-unten">
+      <span>Daten © OpenStreetMap-Mitwirkende (ODbL)</span><span>Grundkarte OpenFreeMap / OpenMapTiles</span><span>Studienprojekt Architektur · 2026</span>
+    </div>
+  </div>
+</section>
+
+<div id="app">
+
+  <!-- ===================== SEITENLEISTE ===================== -->
+  <aside id="panel">
+    <div class="kopf">
+      <h1 id="logo" title="Zur Startseite">LOCUS<span class="punkt">.</span></h1>
+      <div class="untertitel">Standortanalyse · Daten: OpenStreetMap</div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Ort</div>
+      <input type="text" id="suche" placeholder="Stadt, Straße, Adresse …" autocomplete="off">
+      <ul id="treffer"></ul>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Maßstab</div>
+      <select id="massstab">
+        <option value="">frei / Übersicht</option>
+        <option value="500">1 : 500</option>
+        <option value="1000">1 : 1.000</option>
+        <option value="2000">1 : 2.000</option>
+        <option value="2500">1 : 2.500</option>
+        <option value="5000">1 : 5.000</option>
+      </select>
+      <div class="massstab-anzeige">Aktuell ca. <b id="massstab-jetzt">–</b></div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Layer</div>
+      <div id="layermenue"></div>
+      <div class="hinweis">Erst die gewünschten Layer einschalten, dann laden. Die Zahl zeigt, wie viele Objekte im geladenen Ausschnitt gefunden wurden.</div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Daten</div>
+      <button class="haupt" id="laden" disabled>Daten für diesen Ausschnitt laden</button>
+      <div class="hinweis" id="laden-hinweis">Zum Laden auf 1 : 5.000 oder näher heranzoomen.</div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Grundkarte</div>
+      <div class="zeile">
+        <label class="name" for="sw-strassennamen">Straßennamen</label>
+        <label class="schalter"><input type="checkbox" id="sw-strassennamen" checked><span></span></label>
+      </div>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">PDF-Export</div>
+      <div class="pdf-zeile">
+        <select id="pdf-format"><option value="a4">A4</option><option value="a3" selected>A3</option><option value="a2">A2</option><option value="a1">A1</option></select>
+        <select id="pdf-ausrichtung"><option value="quer" selected>quer</option><option value="hoch">hoch</option></select>
+      </div>
+      <select id="pdf-massstab">
+        <option value="500">M 1 : 500</option><option value="1000">M 1 : 1.000</option><option value="2000">M 1 : 2.000</option>
+        <option value="2500" selected>M 1 : 2.500</option><option value="5000">M 1 : 5.000</option>
+      </select>
+      <input type="text" id="pdf-titel" placeholder="Titel / Projektname">
+      <div class="zeile">
+        <label class="name" for="sw-rahmen">Rahmen auf der Karte zeigen</label>
+        <label class="schalter"><input type="checkbox" id="sw-rahmen"><span></span></label>
+      </div>
+      <div class="hinweis" id="pdf-hinweis">Rahmen einschalten, Karte darunter zurechtschieben, dann PDF erstellen.</div>
+      <button class="neben" id="pdf-rahmen-laden" style="display:none">Daten für den Rahmen laden</button>
+      <button class="haupt" id="pdf-erstellen">PDF erstellen</button>
+    </div>
+
+    <div class="abschnitt">
+      <div class="abschnitt-titel">Status</div>
+      <div id="status">
+        <div id="st-datei" class="warte">• Datei: wird geprüft …</div>
+        <div id="st-lib" class="warte">• Kartenbibliothek: lädt …</div>
+        <div id="st-kacheln" class="warte">• Grundkarte: wartet …</div>
+        <div id="st-suche" class="warte">• Suche: noch nicht benutzt</div>
+        <div id="st-daten" class="warte">• Daten: noch nicht geladen</div>
+        <div id="ladeprotokoll"></div>
+      </div>
+    </div>
+  </aside>
+
+  <div id="kartenknoepfe">
+    <button id="klappknopf" title="Seitenleiste ein-/ausblenden">☰</button>
+    <button id="legendenknopf" title="Legende ein-/ausblenden">Legende</button>
+    <!-- Standort-Figur wohnt in einem Haus: auf die Karte ziehen -> Karte zoomt auf 1 : 5.000; zurück ins Haus ziehen -> weg -->
+    <div id="figurfach" title="Figur auf die Karte ziehen, um dorthin zu zoomen">
+      <svg class="haus" viewBox="0 0 30 32" preserveAspectRatio="none" aria-hidden="true"><path d="M0.5 11.5L15 0.5L29.5 11.5V31.5H0.5Z"/></svg>
+      <svg class="bewohner" viewBox="0 0 20 50" aria-hidden="true"><ellipse class="schatten" cx="10" cy="48.3" rx="6.5" ry="1.5"/><circle cx="10" cy="5" r="4.2"/><path d="M6 10.5H14Q16 10.5 16.3 12.5L17.6 26H15.6L14.4 15.5V47H11L10 30.5L9 47H5.6V15.5L4.4 26H2.4L3.7 12.5Q4 10.5 6 10.5Z"/></svg>
+    </div>
+  </div>
+
+  <!-- ===================== KARTE ===================== -->
+  <div id="karte"></div>
+  <div id="legende"></div>
+  <div id="pdfrahmen"><span id="pdfrahmen-text"></span></div>
+  <div id="meldung"></div>
+</div>
+<div id="figur-ziehen"><svg viewBox="0 0 20 50" aria-hidden="true"><ellipse class="schatten" cx="10" cy="48.3" rx="6.5" ry="1.5"/><circle cx="10" cy="5" r="4.2"/><path d="M6 10.5H14Q16 10.5 16.3 12.5L17.6 26H15.6L14.4 15.5V47H11L10 30.5L9 47H5.6V15.5L4.4 26H2.4L3.7 12.5Q4 10.5 6 10.5Z"/></svg></div>
+
+<script>
+/* =========================================================
+   STARTSEITE: sich drehender Globus mit Deutschland in Rot
+   (d3 für die Kugelprojektion, Ländergrenzen aus "world-atlas")
+   ========================================================= */
+(function () {
+  const start = document.getElementById('startseite');
+  // Übergang Startseite <-> Karte: Zoom vom Globus auf Deutschland (wird gesetzt, sobald der Globus geladen ist).
+  // Ohne Globus (kein Internet) oder bei "Bewegung reduzieren" im System: einfaches Überblenden wie bisher.
+  let uebergang = null;
+  const ruhig = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.getElementById('los').addEventListener('click', () => {
+    if (uebergang && !ruhig) uebergang.hinein(); else start.classList.add('weg');
+  });
+  document.getElementById('logo').addEventListener('click', () => {
+    if (uebergang && !ruhig) uebergang.heraus(); else start.classList.remove('weg');
+  });
+
+  const ladeSkript = quellen => new Promise((ok, fehler) => {
+    const versuch = i => {
+      if (i >= quellen.length) return fehler(new Error('nicht ladbar'));
+      const s = document.createElement('script');
+      s.src = quellen[i]; s.onload = ok; s.onerror = () => versuch(i + 1);
+      document.head.appendChild(s);
+    };
+    versuch(0);
+  });
+  const ladeJson = async quellen => {
+    for (const q of quellen) { try { const r = await fetch(q); if (r.ok) return await r.json(); } catch (e) {} }
+    return null;
+  };
+
+  // Kleine TopoJSON-Umrechnung (nur Flächen), damit keine weitere Bibliothek nötig ist
+  function topoZuGeo(topo, objekt) {
+    const t = topo.transform, arcs = topo.arcs.map(a => {
+      let x = 0, y = 0;
+      return a.map(p => { x += p[0]; y += p[1]; return t ? [x * t.scale[0] + t.translate[0], y * t.scale[1] + t.translate[1]] : p; });
+    });
+    const bogen = i => i >= 0 ? arcs[i] : arcs[~i].slice().reverse();
+    const ring = idx => idx.reduce((r, i) => { const b = bogen(i); return r.concat(r.length ? b.slice(1) : b); }, []);
+    return topo.objects[objekt].geometries.map(g => ({
+      type: 'Feature', id: g.id, properties: g.properties || {},
+      geometry: g.type === 'Polygon' ? { type: 'Polygon', coordinates: g.arcs.map(ring) }
+              : g.type === 'MultiPolygon' ? { type: 'MultiPolygon', coordinates: g.arcs.map(p => p.map(ring)) } : null
+    })).filter(f => f.geometry);
+  }
+
+  async function globus() {
+    try {
+      await ladeSkript(['https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js', 'https://unpkg.com/d3@7/dist/d3.min.js',
+                        'https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js']);
+    } catch (e) { return; }   // ohne Internet: Startseite ohne Globus
+    const topo = await ladeJson(['https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json',
+                                 'https://unpkg.com/world-atlas@2/countries-110m.json']);
+    const laender = topo ? topoZuGeo(topo, 'countries') : [];
+    // Absicherung: ist eine Fläche "falsch herum" gezeichnet, hält d3 sie für die ganze Erde minus das Land -> umdrehen
+    laender.forEach(f => {
+      if (d3.geoArea(f) > 2 * Math.PI) {
+        const um = ringe => ringe.map(r => r.slice().reverse());
+        f.geometry.coordinates = f.geometry.type === 'Polygon' ? um(f.geometry.coordinates) : f.geometry.coordinates.map(um);
+      }
+    });
+    const deutschland = laender.find(f => String(f.id) === '276');
+    const land = laender.filter(f => f !== deutschland);
+
+    const canvas = document.getElementById('globus');
+    const ctx = canvas.getContext('2d');
+    const pr = Math.min(window.devicePixelRatio || 1, 2);
+    const groesse = 700;
+    canvas.width = groesse * pr; canvas.height = groesse * pr;
+    ctx.scale(pr, pr);
+    const proj = d3.geoOrthographic().scale(groesse / 2 - 12).translate([groesse / 2, groesse / 2]).clipAngle(90);
+    const netz = d3.geoGraticule10();
+    const DE = [10.45, 51.16];
+    const NEIGUNG = -28;   // Blick leicht von oben auf die Nordhalbkugel
+    let laenge = -40;      // Startdrehung: Deutschland kommt nach kurzer Zeit nach vorne
+    let animiert = false;  // läuft gerade der Zoom-Übergang?
+
+    // Globus zeichnen – für den kleinen Globus und für den bildfüllenden Zoom
+    // rot = Deckkraft der roten Deutschland-Fläche, markierung = Kreis + "DEUTSCHLAND"
+    function globusZeichnen(c, p, w, h, rot, markierung) {
+      const pfad = d3.geoPath(p, c);
+      c.clearRect(0, 0, w, h);
+      c.beginPath(); pfad({ type: 'Sphere' }); c.fillStyle = '#fff'; c.fill();
+      c.beginPath(); pfad(netz); c.strokeStyle = '#e4e4e4'; c.lineWidth = 0.6; c.stroke();
+      c.beginPath(); land.forEach(f => pfad(f)); c.fillStyle = '#ececec'; c.fill();
+      c.strokeStyle = '#b5b5b5'; c.lineWidth = 0.5; c.stroke();
+      if (deutschland) {
+        c.beginPath(); pfad(deutschland);
+        c.globalAlpha = rot; c.fillStyle = '#e2001a'; c.fill(); c.globalAlpha = 1;
+        if (rot < 1) { c.strokeStyle = '#e2001a'; c.lineWidth = 1.5; c.stroke(); }   // beim Heranzoomen bleibt die rote Kontur
+      }
+      if (markierung && d3.geoDistance(DE, [-p.rotate()[0], -p.rotate()[1]]) < Math.PI / 2) {
+        const [x, y] = p(DE);
+        c.strokeStyle = '#e2001a'; c.lineWidth = 1.2;
+        c.beginPath(); c.arc(x, y, 18, 0, 2 * Math.PI); c.stroke();
+        c.beginPath(); c.moveTo(x + 18, y); c.lineTo(x + 70, y - 40); c.lineTo(x + 150, y - 40); c.stroke();
+        c.fillStyle = '#111'; c.font = '700 13px "Helvetica Neue", Helvetica, Arial, sans-serif';
+        c.fillText('DEUTSCHLAND', x + 74, y - 47);
+        if (!deutschland) { c.beginPath(); c.arc(x, y, 6, 0, 2 * Math.PI); c.fillStyle = '#e2001a'; c.fill(); }
+      }
+      c.beginPath(); pfad({ type: 'Sphere' }); c.strokeStyle = '#111'; c.lineWidth = 1.2; c.stroke();
+    }
+    function zeichnen() {
+      proj.rotate([laenge, NEIGUNG]);
+      globusZeichnen(ctx, proj, groesse, groesse, 1, true);
+    }
+    let zuletzt = performance.now();
+    function schritt(jetzt) {
+      if (!start.classList.contains('weg') && !animiert) {   // nur drehen, solange die Startseite sichtbar ist
+        laenge += (jetzt - zuletzt) * 0.006;                  // ca. 6° pro Sekunde
+        zeichnen();
+      }
+      zuletzt = jetzt;
+      requestAnimationFrame(schritt);
+    }
+    zeichnen();
+    requestAnimationFrame(schritt);
+
+    /* ---------- Zoom-Übergang ----------
+       Ein zweiter, bildschirmfüllender Globus liegt über der Startseite. Er dreht Deutschland nach vorne,
+       wird so groß, dass Deutschland genauso groß ist wie auf der Karte dahinter, und blendet dann in die Karte über. */
+    const gross = document.createElement('canvas');
+    gross.id = 'globus-zoom';
+    start.appendChild(gross);
+    const gctx = gross.getContext('2d');
+    const DAUER_HINEIN = 4000, DAUER_HERAUS = 2000;   // ms (hinein: inszeniert, zurück: kurz)
+
+    const sanft = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const abschnitt = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
+    const zwischen = (a, b, t) => a + (b - a) * t;
+    const winkel = d => ((d % 360) + 540) % 360 - 180;   // kürzester Drehweg
+
+    // Wo und wie groß ist der kleine Globus gerade?
+    function kleinerGlobus() {
+      const r = canvas.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, s: (groesse / 2 - 12) * r.width / groesse };
+    }
+    // Wo und wie groß muss der Globus sein, damit er genau auf die Karte passt?
+    function kartenAnsicht() {
+      const k = window.locusKarte, el = document.getElementById('karte').getBoundingClientRect();
+      const m = k ? k.getCenter() : { lng: DE[0], lat: DE[1] };
+      const zoom = Math.min(k ? k.getZoom() : 5, 7);   // näher als Zoom 7 wäre der grobe Weltumriss zu sichtbar
+      // Web-Mercator (512-Pixel-Kacheln) -> Maßstab der Kugelprojektion in der Bildmitte
+      const s = 512 * Math.pow(2, zoom) / (2 * Math.PI * Math.cos(m.lat * Math.PI / 180));
+      return { x: el.left + el.width / 2, y: el.top + el.height / 2, s, lon: m.lng, lat: m.lat };
+    }
+    function grossVorbereiten() {
+      const w = window.innerWidth, h = window.innerHeight;
+      gross.width = w * pr; gross.height = h * pr;
+      gctx.setTransform(pr, 0, 0, pr, 0, 0);
+      gross.style.display = 'block';
+      return { w, h };
+    }
+    function grossZeichnen(z, w, h) {
+      const p = d3.geoOrthographic().scale(z.s).translate([z.x, z.y]).rotate([z.lam, z.phi])
+                  .clipAngle(90).clipExtent([[0, 0], [w, h]]);
+      globusZeichnen(gctx, p, w, h, z.rot, false);
+    }
+    const ROT_AM_ENDE = 0.3;   // Deckkraft der roten Fläche, wenn ganz herangezoomt
+
+    uebergang = {
+      // Startseite -> Karte
+      hinein() {
+        if (animiert) return;
+        animiert = true;
+        const a = kleinerGlobus(), z = kartenAnsicht();
+        const lam0 = laenge, dLam = winkel(-z.lon - laenge);
+        const { w, h } = grossVorbereiten();
+        start.classList.add('zoomt');   // Texte und kleiner Globus blenden aus
+        const t0 = performance.now();
+        let ausgeblendet = false;
+        const bild = jetzt => {
+          const t = (jetzt - t0) / DAUER_HINEIN;
+          const dreh = sanft(abschnitt(t, 0, .35));      // erst Deutschland nach vorne drehen …
+          const zoom = sanft(abschnitt(t, .15, .9));    // … dann heranzoomen
+          grossZeichnen({ lam: lam0 + dLam * dreh, phi: zwischen(NEIGUNG, -z.lat, dreh),
+                          s: Math.exp(zwischen(Math.log(a.s), Math.log(z.s), zoom)),
+                          x: zwischen(a.x, z.x, zoom), y: zwischen(a.y, z.y, zoom),
+                          rot: 1 - (1 - ROT_AM_ENDE) * zoom }, w, h);
+          if (t >= .8 && !ausgeblendet) { ausgeblendet = true; start.classList.add('weg'); }   // Überblenden zur Karte (0,8 s)
+          if (t < 1) requestAnimationFrame(bild);
+          else setTimeout(() => { laenge = -z.lon; animiert = false; }, 100);
+        };
+        requestAnimationFrame(bild);
+      },
+      // Karte -> Startseite
+      heraus() {
+        if (animiert) return;
+        animiert = true;
+        const z = kartenAnsicht();
+        start.classList.add('zoomt');
+        const a = kleinerGlobus();
+        const { w, h } = grossVorbereiten();
+        const zustand = t => {
+          const zoom = sanft(abschnitt(t, .15, .8));    // herauszoomen …
+          const kipp = sanft(abschnitt(t, .35, .9));    // … und wieder leicht von oben schauen
+          return { lam: -z.lon, phi: zwischen(-z.lat, NEIGUNG, kipp),
+                   s: Math.exp(zwischen(Math.log(z.s), Math.log(a.s), zoom)),
+                   x: zwischen(z.x, a.x, zoom), y: zwischen(z.y, a.y, zoom),
+                   rot: ROT_AM_ENDE + (1 - ROT_AM_ENDE) * zoom };
+        };
+        grossZeichnen(zustand(0), w, h);
+        start.classList.remove('weg');   // Startseite (mit großem Globus) blendet über der Karte ein
+        const t0 = performance.now();
+        const bild = jetzt => {
+          const t = (jetzt - t0) / DAUER_HERAUS;
+          grossZeichnen(zustand(Math.min(t, 1)), w, h);
+          if (t < 1) { requestAnimationFrame(bild); return; }
+          laenge = -z.lon;
+          zeichnen();                       // kleiner Globus steht genau so wie der große
+          gross.style.display = 'none';
+          start.classList.remove('zoomt');  // Texte blenden wieder ein
+          animiert = false;
+        };
+        requestAnimationFrame(bild);
+      }
+    };
+  }
+  globus();
+})();
+
+/* =========================================================
+   STATUSANZEIGE
+   ========================================================= */
+function status(id, text, art) {
+  const el = document.getElementById(id);
+  el.textContent = '• ' + text;
+  el.className = art;
+}
+
+(function () {
+  const p = location.protocol;
+  if (p === 'file:') status('st-datei', 'Datei: lokal im Browser geöffnet ✓', 'ok');
+  else if (p === 'https:' || p === 'http:') status('st-datei', 'Datei: über eine Webadresse geöffnet ✓', 'ok');
+  else status('st-datei', 'Datei: läuft in einer Vorschau (' + p + ') – bitte herunterladen und im Browser öffnen!', 'fehler');
+})();
+
+/* =========================================================
+   KARTENBIBLIOTHEK "MapLibre" LADEN (mit Ersatzquellen)
+   ========================================================= */
+const BIBLIOTHEK_QUELLEN = [
+  { name: 'unpkg',    css: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css',              js: 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js' },
+  { name: 'jsdelivr', css: 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css',   js: 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js' },
+  { name: 'cdnjs',    css: 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.css', js: 'https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.min.js' }
+];
+
+function ladeBibliothek(i) {
+  if (i >= BIBLIOTHEK_QUELLEN.length) {
+    status('st-lib', 'Kartenbibliothek: von keinem Server ladbar – Internet/Firewall prüfen', 'fehler');
+    return;
+  }
+  const q = BIBLIOTHEK_QUELLEN[i];
+  const css = document.createElement('link');
+  css.rel = 'stylesheet'; css.href = q.css;
+  document.head.appendChild(css);
+  const js = document.createElement('script');
+  js.src = q.js;
+  js.onload = () => { status('st-lib', 'Kartenbibliothek: geladen (' + q.name + ') ✓', 'ok'); start(); };
+  js.onerror = () => { css.remove(); ladeBibliothek(i + 1); };
+  document.head.appendChild(js);
+}
+ladeBibliothek(0);
+
+/* =========================================================
+   AB HIER LÄUFT DIE APP (startet, sobald MapLibre da ist)
+   ========================================================= */
+function start() {
+
+/* ---------- Einstellungen ---------- */
+const START_MITTE = [10.45, 51.16];   // Mitte Deutschlands (Länge, Breite)
+const START_ZOOM  = 5;
+const MAX_MASSSTAB_FUER_DATEN = 5000; // Daten nur bis 1:5.000 laden
+
+/* Bildschirm-Annahme: 96 Pixel pro Zoll -> 1 Pixel = 0,2646 mm.
+   Daher ist der Maßstab am Bildschirm immer nur ungefähr. */
+const METER_PRO_PIXEL_BILDSCHIRM = 0.0254 / 96;
+
+/* ---------- Grundkarten ----------
+   1. Wahl: OpenFreeMap "Positron" – kostenlos, ohne Schlüssel, Vektorkarte (scharf in jedem Maßstab)
+   2. Wahl (Notfall): Esri "Light Gray" – Rasterbilder, bei 1:500 etwas unscharf */
+const GRUNDKARTEN = [
+  { name: 'OpenFreeMap Positron', stil: 'https://tiles.openfreemap.org/styles/positron' },
+  { name: 'Esri Light Gray (Notfall)', stil: {
+      version: 8,
+      sources: { esri: { type: 'raster', tileSize: 256, maxzoom: 16,
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}'],
+        attribution: 'Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap-Mitwirkende' } },
+      layers: [{ id: 'esri', type: 'raster', source: 'esri' }]
+  } }
+];
+let grundkartenNr = 0;
+let grundkarteOk = false;
+
+/* ---------- Karte anlegen ---------- */
+status('st-kacheln', 'Grundkarte: lädt (' + GRUNDKARTEN[0].name + ') …', 'warte');
+const karte = new maplibregl.Map({
+  container: 'karte',
+  style: GRUNDKARTEN[0].stil,
+  center: START_MITTE,
+  zoom: START_ZOOM,
+  minZoom: 4,
+  maxZoom: 21,
+  attributionControl: { compact: false },
+  preserveDrawingBuffer: true   // wird später für den PDF-Export gebraucht
+});
+window.locusKarte = karte;   // damit der Globus-Übergang weiß, wohin er zoomen soll
+karte.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+karte.addControl(new maplibregl.ScaleControl({ maxWidth: 160, unit: 'metric' }), 'bottom-left');
+karte.dragRotate.disable();
+karte.touchZoomRotate.disableRotation();
+
+/* ---------- Grundkarte an euer Farbkonzept anpassen ---------- */
+const GRUNDKARTE_FARBEN = {
+  hintergrund: '#ffffff',
+  wasser:      '#dde7ee',   // zartes Graublau
+  wasserlinie: '#c9d8e2'
+};
+function grundkarteAnpassen() {
+  const stil = karte.getStyle();
+  if (!stil || !stil.layers) return;
+  stil.layers.forEach(l => {
+    try {
+      if (l.type === 'background') karte.setPaintProperty(l.id, 'background-color', GRUNDKARTE_FARBEN.hintergrund);
+      if (l['source-layer'] === 'water' && l.type === 'fill') karte.setPaintProperty(l.id, 'fill-color', GRUNDKARTE_FARBEN.wasser);
+      if (l['source-layer'] === 'waterway' && l.type === 'line') karte.setPaintProperty(l.id, 'line-color', GRUNDKARTE_FARBEN.wasserlinie);
+    } catch (e) {}
+  });
+  strassennamenZeigen(document.getElementById('sw-strassennamen').checked);
+}
+karte.on('style.load', grundkarteAnpassen);
+
+// Straßennamen ein-/ausblenden (alle Beschriftungen aus der Ebene "transportation_name")
+function strassennamenZeigen(an) {
+  const stil = karte.getStyle();
+  if (!stil || !stil.layers) return;
+  stil.layers.forEach(l => {
+    if (l.type === 'symbol' && l['source-layer'] === 'transportation_name') {
+      karte.setLayoutProperty(l.id, 'visibility', an ? 'visible' : 'none');
+    }
+  });
+}
+document.getElementById('sw-strassennamen').addEventListener('change', e => strassennamenZeigen(e.target.checked));
+
+/* =========================================================
+   LAYER-KONZEPT  (hier stehen alle Layer mit Namen und Farbe)
+   form: 'flaeche' | 'linie' | 'punkt'  -> bestimmt das Legendensymbol
+   ========================================================= */
+// Hilfslisten für die Regeln
+const NEBENGLEISE = ['siding', 'yard', 'spur', 'crossover'];
+const RADSPUR = ['lane', 'track', 'shared_lane', 'opposite_lane', 'opposite_track'];
+const WOHNGEBAEUDE = ['residential', 'apartments', 'house', 'detached', 'semidetached_house', 'terrace', 'dormitory', 'bungalow', 'farm'];
+
+/* Viele Gebäude sind in OSM nur als "Gebäude" ohne Nutzung eingetragen (building=yes).
+   true = solche Gebäude gelten als Wohngebäude, wenn sie in einem Wohngebiet liegen und keine andere Nutzung haben.
+   false = nur ausdrücklich als Wohnhaus eingetragene Gebäude zählen. */
+const WOHNEN_AUS_WOHNGEBIET = true;
+
+/* Hilfsdaten, die nicht direkt angezeigt werden: alle Gebäude und Wohngebiete */
+const HILFSREGELN = [
+  { typ: 'relation', tags: { building: true, type: ['multipolygon'] } },
+  { typ: 'way', tags: { 'building:use': ['residential'] } },
+  { tags: { landuse: ['residential'] } }
+];
+/* Alle übrigen Gebäude werden nur als Umriss geladen ("skel" = ohne Merkmale) – das spart viel Ladezeit */
+const GEBAEUDE_UMRISSE = [
+  { abfrage: 'way["building"="yes"]', merkmal: { building: 'yes' } },
+  { abfrage: 'way["building"]["building"!="yes"]', merkmal: { building: 'sonstige' } }
+];
+
+const LAYER_GRUPPEN = [
+  { id: 'mobilitaet', name: 'Mobilität', untergruppen: [
+    { name: 'Bus', layer: [
+      { id: 'bus_linien',     name: 'Buslinien',           farbe: '#e3c46b', form: 'linie', breite: 3, versatz: 2,
+        regeln: [ { typ: 'relation', tags: { type: ['route'], route: ['bus', 'trolleybus'] }, zuschneiden: true } ] },
+      { id: 'bus_halt',       name: 'Bushaltestellen',     farbe: '#c9a43a', form: 'punkt', radius: 6,
+        regeln: [ { typ: 'node', tags: { highway: ['bus_stop'] } } ] } ]},
+    { name: 'Bahn', layer: [
+      { id: 'bahn_fern',      name: 'Fern- & Regionalbahn', farbe: '#9e3128', form: 'linie', breite: 3.5,
+        regeln: [ { typ: 'way', tags: { railway: ['rail'] }, ohne: { service: NEBENGLEISE, usage: ['industrial', 'military', 'tourism'] } } ] },
+      { id: 'bahn_s',         name: 'S-Bahn',               farbe: '#c4473a', form: 'linie', breite: 3, versatz: 1,
+        regeln: [ { typ: 'relation', tags: { type: ['route'], route: ['light_rail'] }, zuschneiden: true },
+                  { typ: 'relation', tags: { type: ['route'], route: ['train'] }, muster: { ref: '^S ?[0-9]' }, zuschneiden: true },
+                  { typ: 'way', tags: { railway: ['light_rail'] }, ohne: { service: NEBENGLEISE } } ] },
+      { id: 'bahn_u',         name: 'U-Bahn',               farbe: '#d26a55', form: 'linie', breite: 3,
+        regeln: [ { typ: 'way', tags: { railway: ['subway'] }, ohne: { service: NEBENGLEISE } } ] },
+      { id: 'bahn_tram',      name: 'Straßenbahn',          farbe: '#de9378', form: 'linie', breite: 2.5,
+        regeln: [ { typ: 'way', tags: { railway: ['tram'] }, ohne: { service: NEBENGLEISE } } ] },
+      { id: 'bahn_halt',      name: 'Bahnhöfe & Haltestellen', farbe: '#7f2820', form: 'punkt', radius: 7,
+        regeln: [ { typ: 'node', tags: { railway: ['station', 'halt', 'tram_stop'] } } ] } ]},
+    { name: 'Auto', layer: [
+      { id: 'auto_haupt',     name: 'Hauptverkehrsstraßen', farbe: '#6a8caf', form: 'linie', breite: 4,
+        regeln: [ { typ: 'way', tags: { highway: ['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link'] } } ] },
+      { id: 'auto_parken',    name: 'Parkplätze',           farbe: '#a9bfd6', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { amenity: ['parking'] }, ohne: { parking: ['underground'] } } ] } ]},
+    { name: 'Fuß & Rad', layer: [
+      { id: 'radweg',         name: 'Radwege',              farbe: '#cf7fb0', form: 'linie', breite: 2.2, versatz: 1,
+        regeln: [ { typ: 'way', tags: { highway: ['cycleway'] } },
+                  { typ: 'way', tags: { highway: ['path', 'footway'], bicycle: ['designated'] } },
+                  { typ: 'way', tags: { highway: true, bicycle_road: ['yes'] } },
+                  { typ: 'way', tags: { highway: true, cycleway: RADSPUR } },
+                  { typ: 'way', tags: { highway: true, 'cycleway:both': RADSPUR } },
+                  { typ: 'way', tags: { highway: true, 'cycleway:right': RADSPUR } },
+                  { typ: 'way', tags: { highway: true, 'cycleway:left': RADSPUR } } ] },
+      { id: 'fussweg',        name: 'Fußwege',              farbe: '#efc6df', form: 'linie', breite: 1.6,
+        regeln: [ { typ: 'way', tags: { highway: ['footway', 'pedestrian', 'path', 'steps', 'living_street'] }, ohne: { area: ['yes'] } } ] } ]}
+  ]},
+  { id: 'gruen', name: 'Grün', untergruppen: [
+    /* "regeln" = welche OpenStreetMap-Merkmale (Tags) zu diesem Layer gehören.
+       tags: {schlüssel: [werte]} müssen passen, ohne: {schlüssel: [werte]} dürfen NICHT passen.
+       Die Reihenfolge zählt: ein Objekt landet im ersten Layer, dessen Regel passt. */
+    { name: null, layer: [
+      { id: 'spielplaetze',      name: 'Spielplätze',             farbe: '#bccb72', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { leisure: ['playground'] } } ] },
+      { id: 'gruen_privat',      name: 'Private Grünflächen',     farbe: '#cbd8c2', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { leisure: ['garden'], access: ['private', 'no', 'customers'] } },
+                  { tags: { leisure: ['garden'], 'garden:type': ['residential'] } },
+                  { tags: { landuse: ['allotments'] } } ] },
+      { id: 'gruen_oeffentlich', name: 'Öffentliche Grünflächen', farbe: '#94b98a', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { leisure: ['park', 'garden', 'common', 'dog_park'] } },
+                  { tags: { landuse: ['recreation_ground', 'village_green', 'grass', 'meadow', 'cemetery', 'forest'] } },
+                  { tags: { natural: ['wood', 'grassland', 'scrub', 'heath'] } } ] },
+      { id: 'aufenthalt',        name: 'Aufenthaltsflächen',      farbe: '#93c2ae', form: 'flaeche', ebene: 'unten',
+        regeln: [ { tags: { place: ['square'] } },
+                  { tags: { highway: ['pedestrian'], area: ['yes'] } },
+                  { tags: { leisure: ['picnic_site', 'outdoor_seating'] } },
+                  { typ: 'node', tags: { amenity: ['bench'] }, teil: 2 } ] },
+      { id: 'baeume',            name: 'Bäume',                   farbe: '#557d4f', form: 'punkt', ebene: 'oben', radius: 8,
+        regeln: [ { typ: 'node', tags: { natural: ['tree'] }, teil: 2 },
+                  { typ: 'way',  tags: { natural: ['tree_row'] }, teil: 2 } ] } ]}
+  ]},
+  /* Nutzungen: "nutzung: true" heißt, das Objekt (meist ein Punkt) färbt das Gebäude ein, in dem es liegt.
+     Liegt es in keinem Gebäude, erscheint es als Punkt. */
+  { id: 'nutzungen', name: 'Nutzungen', untergruppen: [
+    { name: 'Gesundheit', layer: [
+      { id: 'krankenhaus',    name: 'Krankenhäuser',   farbe: '#a9383d', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['hospital'] } } ] },
+      { id: 'arzt_zahn',      name: 'Zahnärzte',       farbe: '#f5ccc6', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['dentist'] } }, { tags: { healthcare: ['dentist'] } } ] },
+      { id: 'arzt_fach',      name: 'Fachärzte',       farbe: '#ec9d93', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['doctors'], 'healthcare:speciality': true }, ohne: { 'healthcare:speciality': ['general', 'family', 'general_practice', 'general_medicine'] } },
+                  { tags: { amenity: ['clinic'] } } ] },
+      { id: 'arzt_allgemein', name: 'Allgemeinärzte',  farbe: '#d9625f', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['doctors'] } }, { tags: { healthcare: ['doctor'] } } ] },
+      { id: 'apotheke',       name: 'Apotheken',       farbe: '#c0517a', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['pharmacy'] } } ] } ]},
+    { name: 'Einkaufen', layer: [
+      { id: 'supermarkt',     name: 'Supermärkte',     farbe: '#4874a6', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: ['supermarket'] } } ] },
+      { id: 'baeckerei',      name: 'Bäckereien',      farbe: '#7ea3cf', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: ['bakery', 'pastry'] } } ] },
+      { id: 'drogerie',       name: 'Drogerien',       farbe: '#4c9aa6', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: ['chemist', 'drugstore'] } } ] },
+      { id: 'wochenmarkt',    name: 'Wochenmärkte',    farbe: '#2f5b85', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['marketplace'] } } ] },
+      { id: 'laeden',         name: 'Sonstige Läden',  farbe: '#c4d8ee', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { shop: true }, ohne: { shop: ['vacant', 'no'] } } ] } ]},
+    { name: 'Freizeit', layer: [
+      { id: 'gastronomie',    name: 'Gastronomie',     farbe: '#e9c24f', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['restaurant', 'cafe', 'fast_food', 'ice_cream', 'food_court', 'biergarten'] } } ] },
+      { id: 'kultur',         name: 'Kultur (Kino, Theater, Museum)', farbe: '#cf9532', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['cinema', 'theatre', 'arts_centre', 'community_centre'] } },
+                  { tags: { tourism: ['museum', 'gallery'] } } ] },
+      { id: 'sport',          name: 'Sport',           farbe: '#f3e2a2', form: 'flaeche', nutzung: true, flaechen: true, kontur: '#c8a94e',
+        regeln: [ { tags: { leisure: ['sports_centre', 'fitness_centre', 'stadium', 'swimming_pool', 'sports_hall', 'pitch'] } } ] },
+      { id: 'nachtleben',     name: 'Bars & Nachtleben', farbe: '#a8913f', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['bar', 'pub', 'nightclub'] } } ] } ]},
+    { name: 'Bildung', layer: [
+      { id: 'kita',           name: 'Kitas',           farbe: '#dcd0ec', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['kindergarten', 'childcare'] } } ] },
+      { id: 'grundschule',    name: 'Grundschulen',    farbe: '#b49fdc', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['school'], school: ['primary'] } },
+                  { tags: { amenity: ['school'] }, muster: { 'isced:level': '(^|;) ?1 ?(;|$)' } },
+                  { tags: { amenity: ['school'] }, muster: { name: '[Gg]rundschule' } } ] },
+      { id: 'schule',         name: 'Weiterführende Schulen', farbe: '#8a6dc0', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['school'] } } ] },
+      { id: 'hochschule',     name: 'Hochschulen',     farbe: '#5c4795', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['university', 'college'] } } ] },
+      { id: 'bibliothek',     name: 'Bibliotheken',    farbe: '#b083b8', form: 'flaeche', nutzung: true,
+        regeln: [ { tags: { amenity: ['library'] } } ] } ]},
+    { name: 'Wohnen', layer: [
+      { id: 'wohnen',         name: 'Wohngebäude',     farbe: '#f2b37a', form: 'flaeche',
+        regeln: [ { typ: 'way', tags: { building: WOHNGEBAEUDE } }, { typ: 'relation', tags: { building: WOHNGEBAEUDE } } ] } ]}
+  ]}
+];
+
+/* ---------- Zustand: welche Layer sind an? ---------- */
+const aktiv = new Set();
+function alleLayerVon(gruppe) { return gruppe.untergruppen.flatMap(u => u.layer); }
+
+function alleLayer() { return LAYER_GRUPPEN.flatMap(alleLayerVon); }
+function layerInfo(id) { return alleLayer().find(l => l.id === id); }
+
+/* Jeder Layer wird auf der Karte als bis zu drei Ebenen gezeichnet:
+   -fl = Flächen, -li = Linien, -pu = Punkte */
+const TEILE = ['-fl', '-ko', '-li', '-pu'];
+function karteLayerSichtbar(layerId, an) {
+  TEILE.forEach(t => {
+    const id = 'q-' + layerId + t;
+    if (karte.getLayer(id)) karte.setLayoutProperty(id, 'visibility', an ? 'visible' : 'none');
+  });
+}
+
+/* =========================================================
+   DATEN LADEN  (Overpass = Abfrage-Schnittstelle von OpenStreetMap)
+   ========================================================= */
+// Reihenfolge = Vorrang. overpass-api.de ist der Hauptserver, die anderen sind Ersatz.
+const OVERPASS_SERVER = [
+  'https://overpass-api.de/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter'
+];
+const WARTEZEIT_HAUPTSERVER = 100000; // ms – so lange bekommt der erste Server Zeit
+const WARTEZEIT_ERSATZ = 40000;       // ms – so lange bekommen die Ersatzserver
+const GLEICHZEITIG = 2;               // höchstens so viele Abfragen auf einmal
+const geladeneDaten = {};   // layerId -> GeoJSON
+
+// Eine Regel in Overpass-Sprache übersetzen, z. B. nwr["leisure"~"^(park|garden)$"](bbox);
+function regelZuAbfrage(r, bbox) {
+  let s = r.typ || 'nwr';
+  for (const k in r.tags) {
+    const v = r.tags[k];
+    s += v === true ? '["' + k + '"]' : v.length === 1 ? '["' + k + '"="' + v[0] + '"]' : '["' + k + '"~"^(' + v.join('|') + ')$"]';
+  }
+  for (const k in (r.muster || {})) s += '["' + k + '"~"' + r.muster[k] + '"]';
+  for (const k in (r.ohne || {})) s += '["' + k + '"!~"^(' + r.ohne[k].join('|') + ')$"]';
+  return s + '(' + bbox + ');';
+}
+// Passt ein OSM-Objekt zu einer Regel?
+function regelPasst(r, typ, tags) {
+  if (r.typ && r.typ !== 'nwr' && r.typ !== typ) return false;
+  for (const k in r.tags) {
+    if (r.tags[k] === true) { if (!(k in tags)) return false; }
+    else if (!r.tags[k].includes(tags[k])) return false;
+  }
+  for (const k in (r.muster || {})) if (!new RegExp(r.muster[k]).test(tags[k] || '')) return false;
+  for (const k in (r.ohne || {})) if (tags[k] && r.ohne[k].includes(tags[k])) return false;
+  return true;
+}
+
+// Ladeprotokoll in der Statusanzeige
+function protokoll(text) {
+  const el = document.getElementById('ladeprotokoll');
+  const zeile = document.createElement('div');
+  zeile.textContent = text;
+  el.appendChild(zeile);
+}
+
+// Warteschlange: nie mehr als GLEICHZEITIG Abfragen auf einmal
+let laufend = 0;
+const warteschlange = [];
+function platzHolen() {
+  return new Promise(r => { if (laufend < GLEICHZEITIG) { laufend++; r(); } else warteschlange.push(r); });
+}
+function platzFreigeben() {
+  const n = warteschlange.shift();
+  if (n) n(); else laufend--;
+}
+
+// Merken, welcher Server zuletzt funktioniert hat (bleibt im Browser gespeichert)
+function serverBewertung() { try { return JSON.parse(localStorage.getItem('serverBewertung') || '{}'); } catch (e) { return {}; } }
+function bewerteServer(host, ok) {
+  try { const b = serverBewertung(); b[host] = ok ? Date.now() : -Date.now(); localStorage.setItem('serverBewertung', JSON.stringify(b)); } catch (e) {}
+}
+// Zuletzt erfolgreiche Server zuerst, zuletzt gescheiterte zuletzt, sonst die feste Reihenfolge
+function serverReihenfolge() {
+  const b = serverBewertung();
+  const rang = u => { const v = b[new URL(u).hostname]; return v > 0 ? 0 : v < 0 ? 2 : 1; };
+  return OVERPASS_SERVER.slice().sort((x, y) => rang(x) - rang(y) || OVERPASS_SERVER.indexOf(x) - OVERPASS_SERVER.indexOf(y));
+}
+
+const pause = ms => new Promise(r => setTimeout(r, ms));
+
+/* Laden nach den Ergebnissen der Ladetests (18.11.):
+   - dieselbe Abfrage geht gleichzeitig an ZWEI Server ("Wettlauf"), die erste Antwort gewinnt
+   - weist ein Server ab (oft schon nach weniger als 1 s), wird ER nach kurzer Pause erneut gefragt –
+     auch während der andere noch rechnet
+   - scheitern beide Hauptserver endgültig, werden die Ersatzserver einmal versucht */
+const WETTLAUF_SERVER = ['https://overpass-api.de/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter'];
+const ERSATZ_SERVER = ['https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter'];
+const NEUVERSUCH_PAUSE = 3000;        // ms nach einer Abweisung
+const NEUVERSUCH_PAUSE_429 = 10000;   // ms nach "zu viele Anfragen"
+const MAX_VERSUCHE = 5;               // pro Server
+const ZEITLIMIT_VERSUCH = 120000;     // ms, so lange darf ein einzelner Versuch rechnen
+const ZEITLIMIT_GESAMT = 180000;      // ms, danach wird aufgegeben ("Fehlende Daten nachladen")
+
+async function einVersuch(server, abfrage, signal, name) {
+  const host = new URL(server).hostname;
+  const t0 = performance.now();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), ZEITLIMIT_VERSUCH);
+  const weiter = () => ac.abort();
+  signal.addEventListener('abort', weiter);
+  try {
+    const antwort = await fetch(server, { method: 'POST', signal: ac.signal,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'data=' + encodeURIComponent(abfrage) });
+    if (!antwort.ok) {
+      const e = new Error('Fehler ' + antwort.status + (antwort.status === 429 ? ' (zu viele Anfragen)' : antwort.status === 504 ? ' (überlastet)' : ''));
+      e.status = antwort.status; throw e;
+    }
+    const json = await antwort.json();
+    if (json.remark && /runtime error/i.test(json.remark)) throw new Error('Server-Abbruch: ' + json.remark.slice(0, 60));
+    protokoll(name + ' → ' + host + ': ✓ ' + Math.round((performance.now() - t0) / 1000) + ' s');
+    return json;
+  } catch (e) {
+    if (signal.aborted) throw e;   // anderer Server war schneller – nichts protokollieren
+    const grund = e.name === 'AbortError' ? 'keine Antwort nach ' + ZEITLIMIT_VERSUCH / 1000 + ' s' : e.message;
+    protokoll(name + ' → ' + host + ': ✗ ' + grund);
+    throw e;
+  } finally { clearTimeout(timer); signal.removeEventListener('abort', weiter); }
+}
+
+async function overpassWettlauf(abfrage, name) {
+  const stopp = new AbortController();
+  const start = performance.now();
+  // Ein "Läufer" pro Server: versucht es bis zu MAX_VERSUCHE mal, mit kurzer Pause nach jeder Abweisung
+  const laeufer = async server => {
+    for (let v = 1; v <= MAX_VERSUCHE; v++) {
+      if (stopp.signal.aborted) throw new Error('abgebrochen');
+      try { return await einVersuch(server, abfrage, stopp.signal, name + (v > 1 ? ' (Versuch ' + v + ')' : '')); }
+      catch (e) {
+        if (stopp.signal.aborted || performance.now() - start > ZEITLIMIT_GESAMT || v === MAX_VERSUCHE) throw e;
+        await pause(e.status === 429 ? NEUVERSUCH_PAUSE_429 : NEUVERSUCH_PAUSE);
+      }
+    }
+  };
+  try {
+    const json = await Promise.any(WETTLAUF_SERVER.map(laeufer));   // erster Erfolg gewinnt
+    stopp.abort();
+    return json;
+  } catch (e) {
+    // beide Hauptserver gescheitert: Ersatzserver je einmal
+    for (const server of ERSATZ_SERVER) {
+      try { return await einVersuch(server, abfrage, new AbortController().signal, name + ' (Ersatz)'); } catch (e2) {}
+    }
+    throw new Error('kein Server hat geantwortet');
+  }
+}
+
+/* ---------- OSM-Daten in Geometrien umwandeln ---------- */
+const gleich = (a, b) => a[0] === b[0] && a[1] === b[1];
+
+function istFlaeche(tags) {
+  if (tags.area === 'no') return false;
+  if (tags.area === 'yes') return true;
+  if (tags.natural === 'tree_row' || tags.barrier || tags.highway || tags.railway || tags.route) return false;
+  return true;
+}
+
+// Einzelne Wegstücke zu geschlossenen Ringen zusammensetzen (für Multipolygone)
+function ringeBauen(wege) {
+  const rest = wege.map(w => w.slice());
+  const ringe = [];
+  while (rest.length) {
+    let ring = rest.shift();
+    let sicherung = 0;
+    while (!gleich(ring[0], ring[ring.length - 1]) && sicherung++ < 2000) {
+      const ende = ring[ring.length - 1];
+      const i = rest.findIndex(w => gleich(w[0], ende) || gleich(w[w.length - 1], ende));
+      if (i < 0) break;
+      const w = rest.splice(i, 1)[0];
+      if (!gleich(w[0], ende)) w.reverse();
+      ring = ring.concat(w.slice(1));
+    }
+    if (ring.length >= 4 && gleich(ring[0], ring[ring.length - 1])) ringe.push(ring);
+  }
+  return ringe;
+}
+function punktInRing(p, ring) {
+  let drin = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i], [xj, yj] = ring[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) drin = !drin;
+  }
+  return drin;
+}
+
+function zuGeometrie(el) {
+  const tags = el.tags || {};
+  if (el.type === 'node') return { type: 'Point', coordinates: [el.lon, el.lat] };
+  if (el.type === 'way' && el.geometry) {
+    const k = el.geometry.map(p => [p.lon, p.lat]);
+    if (k.length >= 4 && gleich(k[0], k[k.length - 1]) && istFlaeche(tags)) return { type: 'Polygon', coordinates: [k] };
+    return { type: 'LineString', coordinates: k };
+  }
+  if (el.type === 'relation' && el.members && tags.type === 'route') {
+    // Linienverlauf: alle Wegstücke der Linie (ohne Bahnsteige/Haltepunkte); Lücken durch den Zuschnitt werden getrennt
+    const linien = [];
+    el.members.forEach(m => {
+      if (m.type !== 'way' || !m.geometry || /platform|stop/.test(m.role || '')) return;
+      let stueck = [];
+      m.geometry.forEach(p => {
+        if (p) stueck.push([p.lon, p.lat]);
+        else { if (stueck.length > 1) linien.push(stueck); stueck = []; }
+      });
+      if (stueck.length > 1) linien.push(stueck);
+    });
+    return linien.length ? { type: 'MultiLineString', coordinates: linien } : null;
+  }
+  if (el.type === 'relation' && el.members && (tags.type === 'multipolygon' || tags.type === 'boundary')) {
+    const wege = rolle => el.members.filter(m => m.type === 'way' && m.geometry && (rolle === 'inner' ? m.role === 'inner' : m.role !== 'inner'))
+                                    .map(m => m.geometry.filter(Boolean).map(p => [p.lon, p.lat]));
+    const aussen = ringeBauen(wege('outer'));
+    if (!aussen.length) return null;
+    const polys = aussen.map(r => [r]);
+    ringeBauen(wege('inner')).forEach(innen => {
+      const p = polys.find(p => punktInRing(innen[0], p[0]));
+      if (p) p.push(innen);
+    });
+    return { type: 'MultiPolygon', coordinates: polys };
+  }
+  return null;
+}
+
+/* ---------- Geladene Daten auf die Karte zeichnen ---------- */
+// Wo werden unsere Ebenen einsortiert? "unten" = unter den Gebäuden der Grundkarte, "oben" = unter den Beschriftungen
+function einfuegenVor(ebene) {
+  const ls = karte.getStyle().layers;
+  const ziel = ls.find(l => (ebene === 'unten' && l['source-layer'] === 'building') || l.type === 'symbol');
+  return ziel ? ziel.id : undefined;
+}
+
+function layerZeichnen(l) {
+  const daten = geladeneDaten[l.id];
+  if (!daten) return;
+  const quelle = 'q-' + l.id;
+  if (karte.getSource(quelle)) { karte.getSource(quelle).setData(daten); return; }
+  karte.addSource(quelle, { type: 'geojson', data: daten });
+  const sichtbar = aktiv.has(l.id) ? 'visible' : 'none';
+  const istTyp = typen => ['match', ['geometry-type'], typen, true, false];
+
+  karte.addLayer({ id: quelle + '-fl', type: 'fill', source: quelle, filter: istTyp(['Polygon', 'MultiPolygon']),
+    layout: { visibility: sichtbar },
+    paint: { 'fill-color': l.farbe, 'fill-opacity': l.nutzung || l.id === 'wohnen' ? 1 : 0.85,
+             'fill-outline-color': l.nutzung || l.id === 'wohnen' ? '#ffffff' : l.farbe } }, einfuegenVor(l.ebene || 'oben'));
+  if (l.kontur) karte.addLayer({ id: quelle + '-ko', type: 'line', source: quelle, filter: istTyp(['Polygon', 'MultiPolygon']),
+    layout: { visibility: sichtbar },
+    paint: { 'line-color': l.kontur, 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.6, 19, 1.6] } }, einfuegenVor('oben'));
+  karte.addLayer({ id: quelle + '-li', type: 'line', source: quelle, filter: istTyp(['LineString', 'MultiLineString']),
+    layout: { visibility: sichtbar, 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': l.farbe,
+             'line-width':  ['interpolate', ['linear'], ['zoom'], 15, (l.breite || 2) * 0.6, 19, (l.breite || 2) * 1.8],
+             // "versatz": Linie seitlich verschieben, damit sich z. B. Auto, Rad und Bus nicht überdecken
+             'line-offset': ['interpolate', ['linear'], ['zoom'], 15, (l.versatz || 0) * 2.5, 19, (l.versatz || 0) * 6.5] } }, einfuegenVor('oben'));
+  karte.addLayer({ id: quelle + '-pu', type: 'circle', source: quelle, filter: istTyp(['Point', 'MultiPoint']),
+    layout: { visibility: sichtbar },
+    paint: { 'circle-color': l.farbe, 'circle-opacity': 0.9,
+             'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, (l.radius || 5) * 0.45, 19, (l.radius || 5)],
+             'circle-stroke-color': '#ffffff', 'circle-stroke-width': 0.5 } }, einfuegenVor('oben'));
+}
+
+// Nach einem Wechsel der Grundkarte müssen unsere Ebenen neu gezeichnet werden
+karte.on('style.load', () => alleLayer().slice().reverse().forEach(layerZeichnen));
+
+/* ---------- Hilfsfunktionen für Gebäude ---------- */
+function boxVon(g) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  polys.forEach(p => p[0].forEach(([x, y]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }));
+  return [x0, y0, x1, y1];
+}
+const inBox = (p, b) => p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3];
+const boxUeberlappt = (a, b) => a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+function punktInGeom(p, g) {
+  const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+  return polys.some(poly => punktInRing(p, poly[0]) && !poly.slice(1).some(loch => punktInRing(p, loch)));
+}
+function gebaeudeEintrag(el, g) {
+  const ring = (g.type === 'Polygon' ? g.coordinates : g.coordinates[0])[0];
+  const n = ring.length - 1;
+  let mx = 0, my = 0;
+  for (let i = 0; i < n; i++) { mx += ring[i][0]; my += ring[i][1]; }
+  return { osm: el.type + '/' + el.id, geom: g, box: boxVon(g), mitte: [mx / n, my / n], tags: el.tags || {} };
+}
+
+// Abstand (in Metern) von einem Punkt zum Rand eines Gebäudes – für Punkte, die knapp neben dem Haus liegen
+function abstandZuGebaeude(p, b) {
+  const kx = 111320 * Math.cos(p[1] * Math.PI / 180), ky = 110540;
+  let min = Infinity;
+  const polys = b.geom.type === 'Polygon' ? [b.geom.coordinates] : b.geom.coordinates;
+  polys.forEach(poly => {
+    const r = poly[0];
+    for (let i = 0; i < r.length - 1; i++) {
+      const ax = (r[i][0] - p[0]) * kx, ay = (r[i][1] - p[1]) * ky;
+      const bx = (r[i + 1][0] - p[0]) * kx, by = (r[i + 1][1] - p[1]) * ky;
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      const t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+      const qx = ax + t * dx, qy = ay + t * dy;
+      min = Math.min(min, Math.hypot(qx, qy));
+    }
+  });
+  return min;
+}
+const SUCHRADIUS_METER = 20;
+
+/* ---------- Eine Antwort von Overpass in Layer-Daten umwandeln ---------- */
+function verarbeiten(json, layerListe) {
+  const sammlung = {};
+  layerListe.forEach(l => sammlung[l.id] = []);
+  const ids = new Set(layerListe.map(l => l.id));
+  const untergruppen = LAYER_GRUPPEN.flatMap(g => g.untergruppen)
+    .map(u => u.layer.filter(l => ids.has(l.id))).filter(ls => ls.length);
+  const gesehen = new Set();
+  const gebaeude = [];        // alle Gebäude (für das Einfärben)
+  const wohngebiete = [];     // Wohngebiets-Flächen (für "vermutete" Wohngebäude)
+  const nutzungsObjekte = []; // Punkte/Flächen, die Gebäude einfärben sollen
+
+  (json.elements || []).forEach(el => {
+    const schluessel = el.type + '/' + el.id;
+    if (gesehen.has(schluessel)) return;   // doppelte Objekte überspringen
+    gesehen.add(schluessel);
+    const tags = el.tags || {};
+    let geom;
+    const geometrie = () => (geom === undefined ? (geom = zuGeometrie(el)) : geom);
+
+    // Für die Info beim Anklicken merken: welche Linie hält wo?
+    if (el.type === 'relation' && tags.type === 'route' && el.members) {
+      el.members.forEach(m => {
+        if (m.type === 'node' && m.lat !== undefined) linienHalte.push({ p: [m.lon, m.lat], ref: tags.ref || tags.name || '?', art: tags.route });
+      });
+    }
+
+    if (tags.building && el.type !== 'node') {
+      const g = geometrie();
+      if (g && /Polygon/.test(g.type)) gebaeude.push(gebaeudeEintrag(el, g));
+    }
+    if (tags.landuse === 'residential' && el.type !== 'node') {
+      const g = geometrie();
+      if (g && /Polygon/.test(g.type)) wohngebiete.push({ geom: g, box: boxVon(g) });
+    }
+
+    // Pro Untergruppe dem ersten passenden Layer zuordnen
+    untergruppen.forEach(ls => {
+      const l = ls.find(l => l.regeln.some(r => regelPasst(r, el.type, tags)));
+      if (!l) return;
+      const g = geometrie();
+      if (!g) return;
+      const props = Object.assign({ _osm: schluessel }, tags);
+      if (l.nutzung) nutzungsObjekte.push({ l, el, g, props });
+      else sammlung[l.id].push({ type: 'Feature', geometry: g, properties: props });
+    });
+  });
+
+  /* ---- Nutzungen: nur Gebäude einfärben ---- */
+  const genutzt = new Set();
+  nutzungsObjekte.forEach(({ l, el, g, props }) => {
+    let treffer = [];
+    if (g.type === 'Point') {
+      const p = g.coordinates;
+      let b = gebaeude.find(b => inBox(p, b.box) && punktInGeom(p, b.geom));
+      if (!b) {
+        // nicht im Haus? -> nächstes Gebäude im Umkreis von 20 m
+        const rand = SUCHRADIUS_METER / 111000 * 1.8;
+        let best = null, bestAbstand = SUCHRADIUS_METER;
+        gebaeude.forEach(k => {
+          if (p[0] < k.box[0] - rand || p[0] > k.box[2] + rand || p[1] < k.box[1] - rand || p[1] > k.box[3] + rand) return;
+          const d = abstandZuGebaeude(p, k);
+          if (d < bestAbstand) { bestAbstand = d; best = k; }
+        });
+        b = best;
+      }
+      if (b) treffer = [b];
+    } else if (/Polygon/.test(g.type)) {
+      if (el.tags.building) {
+        const b = gebaeude.find(b => b.osm === el.type + '/' + el.id);
+        if (b) treffer = [b];
+      } else {
+        const box = boxVon(g);
+        treffer = gebaeude.filter(b => boxUeberlappt(b.box, box) && punktInGeom(b.mitte, g));
+      }
+    }
+    treffer.forEach(b => {
+      genutzt.add(b.osm);
+      sammlung[l.id].push({ type: 'Feature', geometry: b.geom, properties: Object.assign({ _gebaeude: b.osm }, props) });
+    });
+    // Punkte ganz ohne Gebäude in der Nähe bleiben als kleiner Punkt sichtbar.
+    // Flächen ohne Gebäude entfallen – außer bei Layern mit "flaechen: true" (z. B. Sportplätze)
+    if (!treffer.length && (g.type === 'Point' || l.flaechen)) sammlung[l.id].push({ type: 'Feature', geometry: g, properties: props });
+  });
+
+  /* ---- Wohnen: zusätzlich Gebäude ohne bekannte Nutzung in Wohngebieten ---- */
+  if (sammlung.wohnen) {
+    const schonWohnen = new Set(sammlung.wohnen.map(f => f.properties._osm));
+    gebaeude.forEach(b => {
+      if (schonWohnen.has(b.osm) || genutzt.has(b.osm) || b.tags.amenity || b.tags.shop) return;
+      const nachMerkmal = b.tags['building:use'] === 'residential';
+      const vermutet = WOHNEN_AUS_WOHNGEBIET && b.tags.building === 'yes' &&
+        wohngebiete.some(w => inBox(b.mitte, w.box) && punktInGeom(b.mitte, w.geom));
+      if (nachMerkmal || vermutet) sammlung.wohnen.push({ type: 'Feature', geometry: b.geom,
+        properties: Object.assign({ _osm: b.osm }, vermutet && !nachMerkmal ? { _vermutet: 'ja' } : {}, b.tags) });
+    });
+  }
+  return sammlung;
+}
+
+/* ---------- Laden: die drei Hauptgruppen gleichzeitig, jede über einen anderen Server ---------- */
+let ladeLaeuft = false;
+const zwischenspeicher = {};   // welche Gruppe ist für welchen Ausschnitt schon erfolgreich geladen?
+let letzterAusschnitt = '';
+let geladenerAusschnitt = '';   // für welchen Ausschnitt gelten die Daten auf der Karte?
+
+// Alle geladenen Daten von der Karte nehmen (z. B. wenn ein neuer Ausschnitt geladen wird)
+function datenVerwerfen() {
+  alleLayer().forEach(l => {
+    geladeneDaten[l.id] = { type: 'FeatureCollection', features: [] };
+    const quelle = karte.getSource('q-' + l.id);
+    if (quelle) quelle.setData(geladeneDaten[l.id]);
+    const anz = document.getElementById('anz-' + l.id);
+    if (anz) anz.textContent = '';
+  });
+  for (const k in zwischenspeicher) delete zwischenspeicher[k];
+  linienHalte = [];
+  geladenerAusschnitt = '';
+  letzterAusschnitt = '';
+  try { if (infoFenster) infoFenster.remove(); } catch (e) {}
+  status('st-daten', 'Daten: noch nicht geladen', 'warte');
+  document.getElementById('laden').textContent = 'Daten für diesen Ausschnitt laden';
+}
+let linienHalte = [];   // Haltepunkte aller geladenen Linien (für die Info beim Anklicken)
+// Welche Hauptgruppen sind eingeschaltet (mindestens ein Layer an)?
+function aktiveGruppen() {
+  return LAYER_GRUPPEN.filter(g => alleLayerVon(g).some(l => aktiv.has(l.id)));
+}
+
+// Eine einzige Abfrage für mehrere Gruppen bauen
+function abfrageFuer(gruppen, bbox) {
+  const regeln = gruppen.flatMap(g => alleLayerVon(g).flatMap(l => l.regeln || []));
+  const mitNutzungen = gruppen.some(g => g.id === 'nutzungen');
+  const normal = regeln.filter(r => !r.zuschneiden).map(r => regelZuAbfrage(r, bbox)).join('') +
+                 (mitNutzungen ? HILFSREGELN.map(r => regelZuAbfrage(r, bbox)).join('') : '');
+  const zuschnitt = regeln.filter(r => r.zuschneiden).map(r => regelZuAbfrage(r, bbox)).join('');
+  // Gebäude-Umrisse hinten dran, abgetrennt durch Zählzeilen ("out count")
+  const umrisse = mitNutzungen ? GEBAEUDE_UMRISSE.map(u => 'out count;' + u.abfrage + '(' + bbox + ');out skel geom qt;').join('') : '';
+  return '[out:json][timeout:120];(' + normal + ');out geom qt;' +
+         (zuschnitt ? '(' + zuschnitt + ');out geom(' + bbox + ') qt;' : '') + umrisse;
+}
+
+let nachladenWartet = false;   // wurde während des Ladens eine weitere Gruppe eingeschaltet?
+
+async function datenLaden(grenzen) {
+  if (ladeLaeuft) { nachladenWartet = true; return; }
+  const knopf = document.getElementById('laden');
+  // normalerweise der sichtbare Ausschnitt; beim PDF-Export der Rahmen; beim Nachladen der schon geladene Ausschnitt
+  const b = grenzen && grenzen.getSouth ? grenzen : karte.getBounds();
+  const bbox = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(x => x.toFixed(6)).join(',');
+
+  // Nur eingeschaltete Gruppen laden
+  const gewaehlt = aktiveGruppen();
+  if (!gewaehlt.length) {
+    meldung('Bitte zuerst im Layer-Menü einschalten, was geladen werden soll (z. B. „Grün“).');
+    return;
+  }
+  // Neuer Ausschnitt? -> alte Daten komplett verwerfen
+  if (bbox !== geladenerAusschnitt) {
+    datenVerwerfen();
+    geladenerAusschnitt = bbox;
+  }
+  // Was fehlt für diesen Ausschnitt noch?
+  const fehlend = gewaehlt.filter(g => !zwischenspeicher[g.id + '|' + bbox]);
+  if (!fehlend.length) { status('st-daten', 'Daten: alles Eingeschaltete ist geladen ✓', 'ok'); return; }
+
+  ladeLaeuft = true;
+  const start = performance.now();
+  const namen = fehlend.map(g => g.name).join(', ');
+  knopf.disabled = true;
+  knopf.textContent = 'Lädt …';
+  document.getElementById('ladeprotokoll').innerHTML = '';
+  status('st-daten', 'Daten: lädt ' + namen + ' …', 'warte');
+  fehlend.forEach(g => alleLayerVon(g).forEach(l => { const a = document.getElementById('anz-' + l.id); if (a) a.textContent = '…'; }));
+
+  let fehler = false;
+  try {
+    const json = await overpassWettlauf(abfrageFuer(fehlend, bbox), namen);
+    if (bbox !== geladenerAusschnitt) return;   // inzwischen anderer Ort gewählt
+    // Antwort zerlegen: Block 0 = Objekte, Block 1/2 = Gebäude-Umrisse (ohne Merkmale)
+    const elemente = [];
+    let block = 0;
+    (json.elements || []).forEach(el => {
+      if (el.type === 'count') { block++; return; }
+      if (block > 0 && !el.tags) el.tags = GEBAEUDE_UMRISSE[block - 1].merkmal;
+      elemente.push(el);
+    });
+    await pause(20);
+    const layerListe = fehlend.flatMap(g => alleLayerVon(g).filter(l => l.regeln));
+    const sammlung = verarbeiten({ elements: elemente }, layerListe);   // Zuordnung unverändert
+    layerListe.slice().reverse().forEach(l => {
+      geladeneDaten[l.id] = { type: 'FeatureCollection', features: sammlung[l.id] };
+      layerZeichnen(l);
+      const anz = document.getElementById('anz-' + l.id);
+      if (anz) anz.textContent = sammlung[l.id].length;
+    });
+    fehlend.forEach(g => zwischenspeicher[g.id + '|' + bbox] = true);
+    ebenenOrdnen();
+    const s = Math.round((performance.now() - start) / 1000);
+    status('st-daten', 'Daten: ' + namen + ' ✓ (' + s + ' s)', 'ok');
+    meldung('Geladen in ' + s + ' Sekunden: ' + namen);
+  } catch (e) {
+    console.warn(e);
+    fehler = true;
+    fehlend.forEach(g => alleLayerVon(g).forEach(l => { const a = document.getElementById('anz-' + l.id); if (a && a.textContent === '…') a.textContent = ''; }));
+    status('st-daten', 'Daten: ' + namen + ' ✗ – kein Server hat geantwortet. Bitte „Fehlende Daten nachladen“ klicken.', 'fehler');
+    meldung('Laden fehlgeschlagen – die Server sind gerade überlastet. Bitte gleich noch einmal versuchen.');
+  } finally {
+    letzterAusschnitt = fehler ? bbox : '';
+    knopf.textContent = fehler ? 'Fehlende Daten nachladen' : 'Daten für diesen Ausschnitt laden';
+    ladeLaeuft = false;
+    anzeigeAktualisieren();
+    try { rahmenAktualisieren(); } catch (e) {}
+  }
+  // Wurde während des Ladens noch eine Gruppe eingeschaltet? -> gleich nachladen
+  if (nachladenWartet && !fehler) { nachladenWartet = false; gruppeNachladen(); }
+}
+
+// Wird eine Gruppe eingeschaltet, die für den geladenen Ausschnitt noch fehlt: automatisch nachladen
+let nachladenTimer = null;
+function gruppeNachladen() {
+  if (!geladenerAusschnitt) return;   // noch nichts geladen -> erst der Knopf
+  const fehlt = aktiveGruppen().some(g => !zwischenspeicher[g.id + '|' + geladenerAusschnitt]);
+  if (!fehlt) return;
+  clearTimeout(nachladenTimer);
+  nachladenTimer = setTimeout(() => {
+    const [s, w, n, o] = geladenerAusschnitt.split(',').map(Number);
+    datenLaden({ getSouth: () => s, getWest: () => w, getNorth: () => n, getEast: () => o });
+  }, 400);   // kurz warten, falls mehrere Schalter hintereinander betätigt werden
+}
+
+// Da die Gruppen in beliebiger Reihenfolge fertig werden: Ebenen am Ende sauber sortieren
+function ebenenOrdnen() {
+  const reihenfolge = alleLayer().slice().reverse();   // unten zuerst
+  ['-fl', '-ko', '-li', '-pu'].forEach(teil => {
+    reihenfolge.forEach(l => {
+      const id = 'q-' + l.id + teil;
+      if (!karte.getLayer(id)) return;
+      const vor = teil === '-fl' ? einfuegenVor(l.ebene || 'oben') : einfuegenVor('oben');
+      if (vor && vor !== id) karte.moveLayer(id, vor);
+    });
+  });
+}
+
+function symbolHTML(l) {
+  return '<span class="sym ' + l.form + '" style="background:' + l.farbe + '"></span>';
+}
+
+/* ---------- Layer-Menü in der Seitenleiste bauen ---------- */
+function menueBauen() {
+  const menue = document.getElementById('layermenue');
+  menue.innerHTML = '';
+  LAYER_GRUPPEN.forEach(g => {
+    const box = document.createElement('div');
+    box.className = 'gruppe';
+    box.innerHTML =
+      '<div class="gruppe-kopf"><span class="pfeil">▶</span><span class="gname">' + g.name + '</span>' +
+      '<label class="schalter" title="Alle an/aus"><input type="checkbox" data-gruppe="' + g.id + '"><span></span></label></div>' +
+      '<div class="gruppe-inhalt"></div>';
+    const inhalt = box.querySelector('.gruppe-inhalt');
+
+    g.untergruppen.forEach(u => {
+      if (u.name) {
+        const t = document.createElement('div');
+        t.className = 'untergruppe-titel'; t.textContent = u.name;
+        inhalt.appendChild(t);
+      }
+      u.layer.forEach(l => {
+        const z = document.createElement('div');
+        z.className = 'zeile';
+        z.innerHTML = symbolHTML(l) +
+          '<label class="name" for="sw-' + l.id + '">' + l.name + '</label>' +
+          '<span class="anz" id="anz-' + l.id + '"></span>' +
+          '<label class="schalter"><input type="checkbox" id="sw-' + l.id + '" data-layer="' + l.id + '"><span></span></label>';
+        inhalt.appendChild(z);
+      });
+    });
+
+    // Auf-/Zuklappen per Klick auf den Gruppenkopf (nicht auf den Schalter)
+    box.querySelector('.gruppe-kopf').addEventListener('click', e => {
+      if (e.target.closest('.schalter')) return;
+      box.classList.toggle('offen');
+    });
+    menue.appendChild(box);
+  });
+
+  // Einzelschalter
+  menue.querySelectorAll('input[data-layer]').forEach(inp => {
+    inp.addEventListener('change', () => schalteLayer(inp.dataset.layer, inp.checked));
+  });
+  // Gruppenschalter "alle an/aus"
+  menue.querySelectorAll('input[data-gruppe]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const g = LAYER_GRUPPEN.find(x => x.id === inp.dataset.gruppe);
+      const an = inp.checked;   // Wunsch gleich merken: alle an oder alle aus
+      alleLayerVon(g).forEach(l => schalteLayer(l.id, an));
+    });
+  });
+}
+
+function schalteLayer(id, an) {
+  if (an) aktiv.add(id); else aktiv.delete(id);
+  const sw = document.getElementById('sw-' + id);
+  if (sw) sw.checked = an;
+  karteLayerSichtbar(id, an);
+  gruppenschalterAktualisieren();
+  legendeAktualisieren();
+  if (an) gruppeNachladen();
+}
+
+// Gruppenschalter zeigt: alle an / keine an / teilweise
+function gruppenschalterAktualisieren() {
+  LAYER_GRUPPEN.forEach(g => {
+    const inp = document.querySelector('input[data-gruppe="' + g.id + '"]');
+    const ids = alleLayerVon(g).map(l => l.id);
+    const anzahl = ids.filter(id => aktiv.has(id)).length;
+    inp.checked = anzahl === ids.length;
+    inp.parentElement.classList.toggle('teilweise', anzahl > 0 && anzahl < ids.length);
+  });
+}
+
+/* ---------- Legende auf der Karte (nur aktive Layer) ---------- */
+let legendeAn = (() => { try { return localStorage.getItem('legendeAn') !== 'nein'; } catch (e) { return true; } })();
+function legendeAktualisieren() {
+  const lg = document.getElementById('legende');
+  document.getElementById('legendenknopf').classList.toggle('an', legendeAn);
+  if (!legendeAn || aktiv.size === 0) { lg.style.display = 'none'; return; }
+  let html = '<h3>Legende</h3>';
+  LAYER_GRUPPEN.forEach(g => {
+    g.untergruppen.forEach(u => {
+      const an = u.layer.filter(l => aktiv.has(l.id));
+      if (!an.length) return;
+      html += '<div class="lg-gruppe">' + (u.name || g.name) + '</div>';
+      an.forEach(l => { html += '<div class="lg-zeile">' + symbolHTML(l) + '<span>' + l.name + '</span></div>'; });
+    });
+  });
+  lg.innerHTML = html;
+  lg.style.display = 'block';
+}
+
+menueBauen();
+
+// Legende ein-/ausblenden (Einstellung wird im Browser gemerkt)
+document.getElementById('legendenknopf').addEventListener('click', () => {
+  legendeAn = !legendeAn;
+  try { localStorage.setItem('legendeAn', legendeAn ? 'ja' : 'nein'); } catch (e) {}
+  legendeAktualisieren();
+});
+legendeAktualisieren();
+
+/* =========================================================
+   PDF-EXPORT IM MASSSTAB
+   Ein Rahmen in Blattgröße liegt in der Kartenmitte. Man verschiebt/zoomt die Karte darunter
+   und exportiert genau den Rahmen-Ausschnitt im gewählten Maßstab.
+   ========================================================= */
+const BLATT_MM = { a4: [297, 210], a3: [420, 297], a2: [594, 420], a1: [841, 594] };   // quer
+const DPI = { a4: 200, a3: 200, a2: 150, a1: 120 };   // Auflösung des Kartenbildes im PDF
+const QUELLE_TEXT = 'Kartendaten © OpenStreetMap-Mitwirkende (ODbL) · Grundkarte: OpenFreeMap, © OpenMapTiles';
+
+function pdfEinstellungen() {
+  return {
+    format: document.getElementById('pdf-format').value,
+    ausrichtung: document.getElementById('pdf-ausrichtung').value,
+    massstab: Number(document.getElementById('pdf-massstab').value),
+    titel: document.getElementById('pdf-titel').value.trim() || 'Standortanalyse'
+  };
+}
+
+// Aufteilung des Blattes: Kartenfeld + Spalte für Titel, Legende und Plankopf (alle Maße in mm)
+function blattLayout(format, ausrichtung) {
+  let [W, H] = BLATT_MM[format];
+  if (ausrichtung === 'hoch') [W, H] = [H, W];
+  const f = Math.max(W, H) / 297;          // Vergrößerungsfaktor gegenüber A4 (für Schriften, Abstände)
+  const rand = 8 * f, abstand = 5 * f;
+  let kartenFeld, spalte;
+  if (ausrichtung === 'quer') {
+    const sb = 68 * f;
+    kartenFeld = { x: rand, y: rand, w: W - 2 * rand - sb - abstand, h: H - 2 * rand };
+    spalte = { x: kartenFeld.x + kartenFeld.w + abstand, y: rand, w: sb, h: H - 2 * rand };
+  } else {
+    const sh = 62 * f;
+    kartenFeld = { x: rand, y: rand, w: W - 2 * rand, h: H - 2 * rand - sh - abstand };
+    spalte = { x: rand, y: kartenFeld.y + kartenFeld.h + abstand, w: W - 2 * rand, h: sh };
+  }
+  return { W, H, f, kartenFeld, spalte };
+}
+
+/* ---------- Rahmen auf der Karte ---------- */
+let rahmenAn = false;
+function rahmenAktualisieren() {
+  const el = document.getElementById('pdfrahmen');
+  if (!rahmenAn) { el.style.display = 'none'; return; }
+  const e = pdfEinstellungen();
+  const { kartenFeld } = blattLayout(e.format, e.ausrichtung);
+  const mpp = meterProPixel(karte.getZoom(), karte.getCenter().lat);   // Meter pro Bildschirmpixel
+  const wPx = kartenFeld.w / 1000 * e.massstab / mpp;
+  const hPx = kartenFeld.h / 1000 * e.massstab / mpp;
+  const c = karte.getContainer();
+  el.style.display = 'block';
+  el.style.width = wPx + 'px';
+  el.style.height = hPx + 'px';
+  el.style.left = (c.offsetLeft + c.clientWidth / 2 - wPx / 2) + 'px';
+  el.style.top = (c.offsetTop + c.clientHeight / 2 - hPx / 2) + 'px';
+  document.getElementById('pdfrahmen-text').textContent =
+    e.format.toUpperCase() + ' ' + e.ausrichtung + ' · 1 : ' + e.massstab.toLocaleString('de-DE');
+
+  // Hinweise: passt der Rahmen aufs Bild? Sind für den ganzen Rahmen Daten geladen?
+  const hinweis = document.getElementById('pdf-hinweis');
+  const zuGross = wPx > c.clientWidth || hPx > c.clientHeight;
+  const g = rahmenGrenzen();
+  const gb = geladenerAusschnitt ? geladenerAusschnitt.split(',').map(Number) : null;   // s, w, n, o
+  const abgedeckt = gb && g.getSouth() >= gb[0] - 1e-6 && g.getWest() >= gb[1] - 1e-6 && g.getNorth() <= gb[2] + 1e-6 && g.getEast() <= gb[3] + 1e-6;
+  document.getElementById('pdf-rahmen-laden').style.display = abgedeckt ? 'none' : 'block';
+  hinweis.textContent = (zuGross ? 'Der Rahmen ist größer als das Fenster – zum Prüfen etwas herauszoomen. ' : '') +
+    (abgedeckt ? 'Für den ganzen Rahmen sind Daten geladen.' : 'Für Teile des Rahmens sind noch keine Daten geladen.');
+}
+// Geografische Grenzen des Rahmens (gleiche Form wie karte.getBounds())
+function rahmenGrenzen() {
+  const e = pdfEinstellungen();
+  const { kartenFeld } = blattLayout(e.format, e.ausrichtung);
+  const mpp = meterProPixel(karte.getZoom(), karte.getCenter().lat);
+  const wPx = kartenFeld.w / 1000 * e.massstab / mpp, hPx = kartenFeld.h / 1000 * e.massstab / mpp;
+  const c = karte.getContainer();
+  const sw = karte.unproject([c.clientWidth / 2 - wPx / 2, c.clientHeight / 2 + hPx / 2]);
+  const ne = karte.unproject([c.clientWidth / 2 + wPx / 2, c.clientHeight / 2 - hPx / 2]);
+  return { getSouth: () => sw.lat, getWest: () => sw.lng, getNorth: () => ne.lat, getEast: () => ne.lng };
+}
+
+/* ---------- PDF-Bibliothek (jsPDF) bei Bedarf laden ---------- */
+function ladeJsPDF() {
+  if (window.jspdf) return Promise.resolve(window.jspdf.jsPDF);
+  const quellen = ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+                   'https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js',
+                   'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'];
+  return new Promise((ok, fehler) => {
+    const versuch = i => {
+      if (i >= quellen.length) return fehler(new Error('PDF-Bibliothek nicht ladbar'));
+      const s = document.createElement('script');
+      s.src = quellen[i];
+      s.onload = () => ok(window.jspdf.jsPDF);
+      s.onerror = () => versuch(i + 1);
+      document.head.appendChild(s);
+    };
+    versuch(0);
+  });
+}
+
+/* ---------- Kartenbild in Druckauflösung erzeugen ---------- */
+async function kartenBild(e, kartenFeld) {
+  const dpi = DPI[e.format];
+  const breiteCss = Math.round(kartenFeld.w / 25.4 * 96), hoeheCss = Math.round(kartenFeld.h / 25.4 * 96);
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;left:-20000px;top:0;width:' + breiteCss + 'px;height:' + hoeheCss + 'px;';
+  document.body.appendChild(box);
+  const mitte = karte.getCenter();
+  const druck = new maplibregl.Map({
+    container: box, style: karte.getStyle(), center: mitte,
+    zoom: zoomFuerMassstab(e.massstab, mitte.lat),   // bei 96 dpi CSS-Pixeln = exakter Maßstab auf Papier
+    pixelRatio: dpi / 96, interactive: false, attributionControl: false, preserveDrawingBuffer: true, fadeDuration: 0
+  });
+  await new Promise(ok => {
+    let fertig = false;
+    const ende = () => { if (!fertig) { fertig = true; ok(); } };
+    druck.once('idle', ende);
+    setTimeout(ende, 45000);   // Sicherheit: spätestens nach 45 s weiter
+  });
+  const bild = druck.getCanvas().toDataURL('image/jpeg', 0.92);
+  druck.remove();
+  box.remove();
+  return bild;
+}
+
+/* ---------- Hilfen zum Zeichnen im PDF ---------- */
+function hexZuRgb(hex) { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function schoeneLaenge(maxMeter) {
+  const stufen = [5, 10, 20, 25, 50, 100, 200, 250, 500, 1000, 2000, 2500, 5000];
+  return stufen.filter(s => s <= maxMeter).pop() || stufen[0];
+}
+
+/* ---------- PDF im Swiss Style ----------
+   Helvetica, Schwarz/Weiß, dünne Linien, Rot nur als Akzent (Punkt hinter LOCUS) */
+const PDF_ROT = [226, 0, 26], PDF_SCHWARZ = [17, 17, 17], PDF_GRAU = [120, 120, 120];
+const farbe = (doc, art, c) => doc['set' + art + 'Color'](c[0], c[1], c[2]);
+
+// Legende: klein und ruhig; passt sich an (mehr Spalten, notfalls kleinere Schrift)
+function legendeZeichnen(doc, bereich, f, maxSpalten) {
+  const eintraege = [];
+  LAYER_GRUPPEN.forEach(g => g.untergruppen.forEach(u => {
+    const an = u.layer.filter(l => aktiv.has(l.id));
+    if (!an.length) return;
+    eintraege.push({ titel: (u.name || g.name).toUpperCase() });
+    an.forEach(l => eintraege.push({ layer: l }));
+  }));
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5 * f); farbe(doc, 'Text', PDF_SCHWARZ);
+  doc.text('LEGENDE', bereich.x, bereich.y + 2.5 * f);
+  if (!eintraege.length) {
+    doc.setFont('helvetica', 'normal'); farbe(doc, 'Text', PDF_GRAU); doc.text('Keine Layer eingeschaltet', bereich.x, bereich.y + 7 * f);
+    return;
+  }
+  const kopf = 6 * f, basisZeile = 3.5;
+  let groesse = 1, spalten = 1;
+  suche: for (const gr of [1, 0.9, 0.8, 0.7]) {
+    for (let sp = 1; sp <= maxSpalten; sp++) {
+      const proSpalte = Math.floor((bereich.h - kopf) / (basisZeile * f * gr));
+      const gruppen = eintraege.filter(e => e.titel).length;
+      if (proSpalte * sp >= eintraege.length + gruppen && bereich.w / sp >= 26 * f * gr) { groesse = gr; spalten = sp; break suche; }
+    }
+    groesse = gr; spalten = maxSpalten;
+  }
+  const zeilenH = basisZeile * f * groesse, sym = 2.3 * f * groesse;
+  const proSpalte = Math.max(1, Math.floor((bereich.h - kopf) / zeilenH));
+  const spaltenB = bereich.w / spalten;
+  let zeile = 0;
+  eintraege.forEach(eintrag => {
+    if (eintrag.titel && zeile % proSpalte !== 0) zeile++;   // kleiner Abstand vor jeder Gruppe
+    // Überschrift nie allein ans Spaltenende (sie braucht mindestens einen Eintrag darunter) -> nächste Spalte
+    if (eintrag.titel && zeile % proSpalte >= proSpalte - 1) zeile = Math.ceil(zeile / proSpalte) * proSpalte + (zeile % proSpalte === 0 ? 0 : 0);
+    const i = zeile++;
+    const sp = Math.floor(i / proSpalte);
+    if (sp >= spalten) return;
+    const x = bereich.x + sp * spaltenB, y = bereich.y + kopf + (i % proSpalte) * zeilenH;
+    if (eintrag.titel) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(5.2 * f * groesse); farbe(doc, 'Text', PDF_GRAU);
+      doc.text(eintrag.titel, x, y + 1.9 * f * groesse);
+      return;
+    }
+    const l = eintrag.layer, [r, gg, b] = hexZuRgb(l.farbe);
+    doc.setFillColor(r, gg, b); doc.setDrawColor(r, gg, b);
+    const mitte = y + 1.1 * f * groesse;
+    if (l.form === 'linie') { doc.setLineWidth(0.7 * f * groesse); doc.line(x, mitte, x + sym * 1.4, mitte); }
+    else if (l.form === 'punkt') doc.circle(x + sym * 0.7, mitte, sym * 0.32, 'F');
+    else doc.rect(x, mitte - sym / 2, sym * 1.4, sym, 'F');
+    const schrift = 5.6 * f * groesse, platz = spaltenB - sym * 1.4 - 4 * f;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(schrift); farbe(doc, 'Text', PDF_SCHWARZ);
+    const breite = doc.getTextWidth(l.name);
+    if (breite > platz) doc.setFontSize(schrift * platz / breite);
+    doc.text(l.name, x + sym * 1.4 + 2 * f * groesse, y + 1.9 * f * groesse);
+  });
+}
+
+// Plankopf: schlichter Nordpfeil, schlichte Maßstabsleiste, Angaben im Raster
+function plankopfZeichnen(doc, bereich, f, e) {
+  const x = bereich.x, y = bereich.y, w = bereich.w;
+  farbe(doc, 'Draw', PDF_SCHWARZ); doc.setLineWidth(0.25 * f);
+  doc.line(x, y, x + w, y);
+
+  // Nordzeichen wie in Architekturplänen: Kreis mit dünnem Fadenkreuz (ragt seitlich und unten heraus),
+  // kräftiger Balken von der Mitte nach oben über den Kreis hinaus, darüber "N"
+  const r = 4 * f, nx = x + r * 1.25, ny = y + 6.5 * f + r * 1.3;   // Kreismitte
+  farbe(doc, 'Draw', PDF_SCHWARZ); farbe(doc, 'Fill', PDF_SCHWARZ);
+  doc.setLineWidth(0.3 * f);
+  doc.circle(nx, ny, r, 'S');
+  doc.setLineWidth(0.15 * f);
+  doc.line(nx - r * 1.25, ny, nx + r * 1.25, ny);   // waagerecht, seitlich über den Kreis hinaus
+  doc.line(nx, ny, nx, ny + r * 1.25);              // senkrecht nach unten
+  const balken = r * 0.15;
+  doc.rect(nx - balken / 2, ny - r * 1.3, balken, r * 1.3, 'F');   // kräftiger Balken nach Norden
+  // "N" und "M 1 : …" in gleicher Schrift (nicht fett), gleicher Größe und auf gleicher Höhe
+  const textZeile = ny - r * 1.3 - 1.2 * f;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8 * f); farbe(doc, 'Text', PDF_SCHWARZ);
+  doc.text('N', nx, textZeile, { align: 'center' });
+
+  // Maßstabsleiste: eine Linie mit Endstrichen und Mittelstrich
+  const lx = x + 2.5 * r + 6 * f, ly = y + 15 * f;
+  const maxMm = Math.min(w - (lx - x) - 4 * f, 40 * f);
+  const meter = schoeneLaenge(maxMm / 1000 * e.massstab);
+  const mm = meter * 1000 / e.massstab;
+  doc.setLineWidth(0.3 * f);
+  doc.line(lx, ly, lx + mm, ly);
+  [0, mm / 2, mm].forEach(t => doc.line(lx + t, ly - (t === mm / 2 ? 0.8 : 1.4) * f, lx + t, ly));
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5 * f);
+  doc.text('0', lx, ly + 3 * f, { align: 'center' });
+  doc.text(meter.toLocaleString('de-DE') + ' m', lx + mm, ly + 3 * f, { align: 'center' });
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8 * f);   // wie das "N": nicht fett, gleiche Größe, gleiche Höhe
+  doc.text('M 1 : ' + e.massstab.toLocaleString('de-DE'), lx, textZeile);
+
+  // Angaben im Raster: zwei Spalten
+  const ay = y + 24 * f, sp = w / 2;
+  doc.setLineWidth(0.15 * f); doc.line(x, ay - 3 * f, x + w, ay - 3 * f);
+  const feld = (label, wert, fx, fy) => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(4.8 * f); farbe(doc, 'Text', PDF_GRAU); doc.text(label, fx, fy);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(6 * f); farbe(doc, 'Text', PDF_SCHWARZ); doc.text(wert, fx, fy + 2.8 * f);
+  };
+  feld('FORMAT', e.format.toUpperCase() + ' ' + e.ausrichtung, x, ay);
+  feld('STAND', new Date().toLocaleDateString('de-DE'), x + sp, ay);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(4.8 * f); farbe(doc, 'Text', PDF_GRAU);
+  doc.text('QUELLE', x, ay + 7.5 * f);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(4.8 * f); farbe(doc, 'Text', PDF_SCHWARZ);
+  doc.text(doc.splitTextToSize(QUELLE_TEXT, w), x, ay + 10 * f);
+}
+
+// Kopf: "LOCUS." klein mit rotem Punkt, darunter der Titel groß, darunter eine kräftige Linie
+function titelZeichnen(doc, x, y, w, f, titel, groesse) {
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9 * f); farbe(doc, 'Text', PDF_SCHWARZ);
+  doc.text('LOCUS', x, y + 3 * f);
+  const lw = doc.getTextWidth('LOCUS');
+  farbe(doc, 'Text', PDF_ROT); doc.text('.', x + lw, y + 3 * f);
+  doc.setFontSize(groesse * f); farbe(doc, 'Text', PDF_SCHWARZ);
+  const zeilen = doc.splitTextToSize(titel, w);
+  doc.text(zeilen, x, y + 3 * f + groesse * 0.42 * f + 2 * f);
+  const unten = y + 3 * f + zeilen.length * groesse * 0.42 * f + 4 * f;
+  farbe(doc, 'Draw', PDF_SCHWARZ); doc.setLineWidth(0.8 * f); doc.line(x, unten, x + w, unten);
+  return unten + 4 * f;   // Unterkante (für das Element darunter)
+}
+
+/* ---------- PDF zusammensetzen ---------- */
+async function pdfErstellen() {
+  const knopf = document.getElementById('pdf-erstellen');
+  const e = pdfEinstellungen();
+  const L = blattLayout(e.format, e.ausrichtung);
+  knopf.disabled = true;
+  const alt = knopf.textContent;
+  try {
+    knopf.textContent = 'PDF-Bibliothek lädt …';
+    const jsPDF = await ladeJsPDF();
+    knopf.textContent = 'Karte wird gerendert …';
+    const bild = await kartenBild(e, L.kartenFeld);
+    knopf.textContent = 'PDF wird erstellt …';
+    const doc = new jsPDF({ orientation: e.ausrichtung === 'quer' ? 'landscape' : 'portrait', unit: 'mm', format: e.format });
+    const f = L.f, k = L.kartenFeld, s = L.spalte;
+
+    doc.addImage(bild, 'JPEG', k.x, k.y, k.w, k.h);
+    farbe(doc, 'Draw', PDF_SCHWARZ); doc.setLineWidth(0.25 * f); doc.rect(k.x, k.y, k.w, k.h);
+
+    const kopfH = 38 * f;
+    if (e.ausrichtung === 'quer') {
+      // Spalte rechts: Kopf oben, Legende, Plankopf unten
+      const lgOben = titelZeichnen(doc, s.x, s.y, s.w, f, e.titel, 15);
+      legendeZeichnen(doc, { x: s.x, y: lgOben, w: s.w, h: s.y + s.h - kopfH - 4 * f - lgOben }, f, 2);
+      plankopfZeichnen(doc, { x: s.x, y: s.y + s.h - kopfH, w: s.w, h: kopfH }, f, e);
+    } else {
+      // Leiste unten: links Legende, rechts Kopf + Plankopf
+      const rechtsB = 66 * f;
+      legendeZeichnen(doc, { x: s.x, y: s.y, w: s.w - rechtsB - 6 * f, h: s.h }, f, 4);
+      const rx = s.x + s.w - rechtsB;
+      titelZeichnen(doc, rx, s.y, rechtsB, f, e.titel, 12);
+      plankopfZeichnen(doc, { x: rx, y: s.y + s.h - kopfH, w: rechtsB, h: kopfH }, f, e);
+    }
+    const name = 'LOCUS_' + (e.titel.replace(/[^\wäöüÄÖÜß-]+/g, '_') || 'Standortanalyse') + '_' + e.format.toUpperCase() + '_1-' + e.massstab + '.pdf';
+    doc.save(name);
+    meldung('PDF erstellt: ' + name);
+  } catch (err) {
+    console.warn(err);
+    meldung('PDF konnte nicht erstellt werden: ' + err.message);
+  } finally {
+    knopf.disabled = false;
+    knopf.textContent = alt;
+  }
+}
+
+/* ---------- Bedienelemente verbinden ---------- */
+['pdf-format', 'pdf-ausrichtung', 'pdf-massstab'].forEach(id =>
+  document.getElementById(id).addEventListener('change', () => { rahmenAn = true; document.getElementById('sw-rahmen').checked = true; rahmenAktualisieren(); }));
+document.getElementById('sw-rahmen').addEventListener('change', ev => { rahmenAn = ev.target.checked; rahmenAktualisieren(); });
+karte.on('move', rahmenAktualisieren);
+karte.on('resize', rahmenAktualisieren);
+document.getElementById('pdf-erstellen').addEventListener('click', pdfErstellen);
+document.getElementById('pdf-rahmen-laden').addEventListener('click', () => datenLaden(rahmenGrenzen()));
+
+/* =========================================================
+   INFO BEIM ANKLICKEN
+   ========================================================= */
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// Lesbare Bezeichnungen für häufige OSM-Werte
+const ART_TEXT = {
+  amenity: { doctors: 'Arztpraxis', dentist: 'Zahnarztpraxis', pharmacy: 'Apotheke', hospital: 'Krankenhaus', clinic: 'Klinik / MVZ',
+             school: 'Schule', kindergarten: 'Kita', childcare: 'Kinderbetreuung', university: 'Hochschule', college: 'Fachschule / Kolleg',
+             library: 'Bibliothek', restaurant: 'Restaurant', cafe: 'Café', fast_food: 'Imbiss', ice_cream: 'Eiscafé', bar: 'Bar', pub: 'Kneipe',
+             nightclub: 'Club', biergarten: 'Biergarten', cinema: 'Kino', theatre: 'Theater', arts_centre: 'Kulturzentrum',
+             community_centre: 'Gemeinschaftszentrum', marketplace: 'Markt', parking: 'Parkplatz', bench: 'Sitzbank' },
+  shop: { supermarket: 'Supermarkt', bakery: 'Bäckerei', pastry: 'Konditorei', chemist: 'Drogerie', convenience: 'Kiosk / Nahversorger',
+          clothes: 'Bekleidung', hairdresser: 'Friseur', butcher: 'Metzgerei', kiosk: 'Kiosk', optician: 'Optiker', shoes: 'Schuhe' },
+  leisure: { park: 'Park', garden: 'Garten', playground: 'Spielplatz', pitch: 'Sportplatz', sports_centre: 'Sportzentrum',
+             fitness_centre: 'Fitnessstudio', swimming_pool: 'Schwimmbad', stadium: 'Stadion', sports_hall: 'Sporthalle', picnic_site: 'Picknickplatz' },
+  highway: { bus_stop: 'Bushaltestelle', footway: 'Fußweg', cycleway: 'Radweg', path: 'Weg', pedestrian: 'Fußgängerzone', steps: 'Treppe',
+             living_street: 'Spielstraße', primary: 'Hauptstraße', secondary: 'Nebenstraße', trunk: 'Bundesstraße', motorway: 'Autobahn' },
+  railway: { station: 'Bahnhof', halt: 'Haltepunkt', tram_stop: 'Straßenbahn-Haltestelle', rail: 'Bahnstrecke', tram: 'Straßenbahn', subway: 'U-Bahn', light_rail: 'S-Bahn' },
+  landuse: { cemetery: 'Friedhof', forest: 'Wald', grass: 'Rasenfläche', meadow: 'Wiese', allotments: 'Kleingärten', recreation_ground: 'Erholungsfläche' },
+  natural: { tree: 'Baum', tree_row: 'Baumreihe', wood: 'Wald', scrub: 'Gebüsch' },
+  tourism: { museum: 'Museum', gallery: 'Galerie' },
+  place: { square: 'Platz' }
+};
+function artVon(t) {
+  for (const k in ART_TEXT) if (t[k] && ART_TEXT[k][t[k]]) return ART_TEXT[k][t[k]];
+  return null;
+}
+
+// Welche Linien halten in der Nähe eines Punktes?
+function linienAm(p, radiusMeter) {
+  const kx = 111320 * Math.cos(p[1] * Math.PI / 180), ky = 110540;
+  const refs = new Set();
+  linienHalte.forEach(h => {
+    if (Math.hypot((h.p[0] - p[0]) * kx, (h.p[1] - p[1]) * ky) <= radiusMeter) refs.add(h.ref);
+  });
+  return [...refs].sort((a, b) => a.localeCompare(b, 'de', { numeric: true }));
+}
+
+function infoEintrag(l, f) {
+  const t = f.properties;
+  let html = '<div class="info-eintrag"><div class="info-kat">' + symbolHTML(l) + esc(l.name) + '</div>';
+
+  // Überschrift: Name, bei Linien Nummer + Name
+  let titel = t.name;
+  if (t.type === 'route') titel = (t.ref ? 'Linie ' + t.ref : '') + (t.name && t.ref ? '' : (t.name || ''));
+  html += '<div class="info-name">' + esc(titel || artVon(t) || 'ohne Namen') + '</div>';
+
+  const zeilen = [];
+  const art = artVon(t);
+  if (art && titel) zeilen.push(['Art', art]);
+  if (t.type === 'route') {
+    if (t.from || t.to) zeilen.push(['Strecke', (t.from || '…') + ' → ' + (t.to || '…')]);
+    if (t.operator) zeilen.push(['Betreiber', t.operator]);
+  }
+  if (t['healthcare:speciality']) zeilen.push(['Fachrichtung', t['healthcare:speciality'].replace(/_/g, ' ').replace(/;/g, ', ')]);
+  if (t.cuisine) zeilen.push(['Küche', t.cuisine.replace(/_/g, ' ').replace(/;/g, ', ')]);
+  const adresse = [[t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' '), [t['addr:postcode'], t['addr:city']].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  if (adresse) zeilen.push(['Adresse', adresse]);
+  if (t.opening_hours) zeilen.push(['Öffnungszeiten', t.opening_hours]);
+  if (t.species || t['species:de'] || t.genus) zeilen.push(['Baumart', t['species:de'] || t.species || t.genus]);
+  if (t.access && /private|no/.test(t.access)) zeilen.push(['Zugang', 'privat']);
+  if (t.operator && t.type !== 'route') zeilen.push(['Betreiber', t.operator]);
+  if (t._vermutet) zeilen.push(['Hinweis', 'Nutzung nicht eingetragen – als Wohnhaus angenommen, weil es im Wohngebiet liegt']);
+  zeilen.forEach(([k, v]) => { html += '<div class="info-zeile"><span>' + k + ':</span> ' + esc(v) + '</div>'; });
+
+  // Haltestellen: welche Linien halten hier?
+  if (f.geometry && f.geometry.type === 'Point' && (l.id === 'bus_halt' || l.id === 'bahn_halt')) {
+    const linien = linienAm(f.geometry.coordinates, l.id === 'bahn_halt' ? 150 : 40);
+    if (linien.length) {
+      const farbe = l.id === 'bahn_halt' ? '#f1c9c2' : '#f3e2a2';
+      html += '<div class="info-zeile"><span>Linien:</span></div><div class="info-linien">' +
+              linien.map(r => '<b style="background:' + farbe + '">' + esc(r) + '</b>').join('') + '</div>';
+    } else {
+      html += '<div class="info-zeile"><span>Linien:</span> keine Angabe in OSM</div>';
+    }
+  }
+
+  // Link zum Objekt in OpenStreetMap
+  const osm = t._osm || '';
+  if (/^(node|way|relation)\/\d+$/.test(osm)) {
+    html += '<a class="info-link" href="https://www.openstreetmap.org/' + osm + '" target="_blank" rel="noopener">In OpenStreetMap ansehen ↗</a>';
+  }
+  return html + '</div>';
+}
+
+// Alle Kartenebenen, die gerade sichtbar sind
+function sichtbareEbenen() {
+  const ids = [];
+  aktiv.forEach(id => TEILE.forEach(t => { if (karte.getLayer('q-' + id + t)) ids.push('q-' + id + t); }));
+  return ids;
+}
+function ebeneZuLayer(ebenenId) {
+  return layerInfo(ebenenId.replace(/^q-/, '').replace(/-(fl|ko|li|pu)$/, ''));
+}
+
+let infoFenster = null;
+karte.on('click', e => {
+  const ebenen = sichtbareEbenen();
+  if (!ebenen.length) return;
+  const r = 5;   // ein paar Pixel Spielraum, damit man dünne Linien und kleine Punkte trifft
+  const treffer = karte.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ebenen });
+  if (!treffer.length) { if (infoFenster) infoFenster.remove(); return; }
+
+  // Doppelte entfernen (gleiches Objekt im gleichen Layer), höchstens 5 Einträge
+  const gesehen = new Set();
+  const eintraege = [];
+  treffer.forEach(f => {
+    const l = ebeneZuLayer(f.layer.id);
+    if (!l) return;
+    const key = l.id + '|' + (f.properties._osm || '') + '|' + (f.properties._gebaeude || '');
+    if (gesehen.has(key)) return;
+    gesehen.add(key);
+    eintraege.push(infoEintrag(l, f));
+  });
+  const mehr = eintraege.length > 5 ? '<div class="info-zeile"><span>… und ' + (eintraege.length - 5) + ' weitere</span></div>' : '';
+
+  if (infoFenster) infoFenster.remove();
+  infoFenster = new maplibregl.Popup({ maxWidth: '300px', closeButton: true })
+    .setLngLat(e.lngLat).setHTML(eintraege.slice(0, 5).join('') + mehr).addTo(karte);
+});
+
+// Mauszeiger als Hand, wenn man über etwas Anklickbarem ist
+karte.on('mousemove', e => {
+  const ebenen = sichtbareEbenen();
+  const ueber = ebenen.length && karte.queryRenderedFeatures([[e.point.x - 3, e.point.y - 3], [e.point.x + 3, e.point.y + 3]], { layers: ebenen }).length;
+  karte.getCanvas().style.cursor = ueber ? 'pointer' : '';
+});
+
+// Prüfen, ob die Grundkarte wirklich Daten bekommt
+karte.on('data', e => {
+  if (!grundkarteOk && e.dataType === 'source' && e.isSourceLoaded && e.tile) {
+    grundkarteOk = true;
+    status('st-kacheln', 'Grundkarte: geladen (' + GRUNDKARTEN[grundkartenNr].name + ') ✓', 'ok');
+  }
+});
+let fehlerZaehler = 0;
+karte.on('error', e => {
+  console.warn('Kartenfehler:', e && e.error);
+  if (grundkarteOk) return;
+  fehlerZaehler++;
+  if (fehlerZaehler >= 3) wechsleGrundkarte();
+});
+// Falls nach 10 Sekunden nichts da ist: Ersatz nehmen
+setTimeout(() => { if (!grundkarteOk) wechsleGrundkarte(); }, 10000);
+
+function wechsleGrundkarte() {
+  if (grundkartenNr + 1 >= GRUNDKARTEN.length) {
+    status('st-kacheln', 'Grundkarte: keine Quelle erreichbar – Internet/Firewall prüfen', 'fehler');
+    return;
+  }
+  grundkartenNr++;
+  fehlerZaehler = 0;
+  status('st-kacheln', 'Grundkarte: Ersatz wird geladen (' + GRUNDKARTEN[grundkartenNr].name + ') …', 'warte');
+  karte.setStyle(GRUNDKARTEN[grundkartenNr].stil);
+  setTimeout(() => { if (!grundkarteOk) status('st-kacheln', 'Grundkarte: keine Quelle erreichbar – Internet/Firewall prüfen', 'fehler'); }, 10000);
+}
+
+/* ---------- Maßstab (Zoomstufe <-> 1:x umrechnen) ---------- */
+// MapLibre rechnet mit 512-Pixel-Kacheln: 1 Pixel bei Zoom 0 am Äquator = 78.271,5 m
+function meterProPixel(zoom, breitengrad) {
+  return 78271.51696 * Math.cos(breitengrad * Math.PI / 180) / Math.pow(2, zoom);
+}
+function aktuellerMassstab() {
+  return meterProPixel(karte.getZoom(), karte.getCenter().lat) / METER_PRO_PIXEL_BILDSCHIRM;
+}
+function zoomFuerMassstab(massstab, breitengrad) {
+  const mpp = massstab * METER_PRO_PIXEL_BILDSCHIRM;
+  return Math.log2(78271.51696 * Math.cos(breitengrad * Math.PI / 180) / mpp);
+}
+function schoeneZahl(n) {
+  const r = n < 1000 ? Math.round(n / 10) * 10 : n < 10000 ? Math.round(n / 50) * 50 : Math.round(n / 1000) * 1000;
+  return r.toLocaleString('de-DE');
+}
+
+const auswahl = document.getElementById('massstab');
+auswahl.addEventListener('change', () => {
+  if (!auswahl.value) return;
+  karte.easeTo({ zoom: zoomFuerMassstab(Number(auswahl.value), karte.getCenter().lat), duration: 600 });
+});
+
+function anzeigeAktualisieren() {
+  const m = aktuellerMassstab();
+  if (letzterAusschnitt && !ladeLaeuft) {
+    const b = karte.getBounds();
+    const jetzt = [b.getSouth(), b.getWest(), b.getNorth(), b.getEast()].map(x => x.toFixed(6)).join(',');
+    if (jetzt !== letzterAusschnitt) { letzterAusschnitt = ''; document.getElementById('laden').textContent = 'Daten für diesen Ausschnitt laden'; }
+  }
+  document.getElementById('massstab-jetzt').textContent = '1 : ' + schoeneZahl(m);
+
+  if (auswahl.value && Math.abs(m - Number(auswahl.value)) / Number(auswahl.value) > 0.03) auswahl.value = '';
+
+  const knopf = document.getElementById('laden');
+  const hinweis = document.getElementById('laden-hinweis');
+  if (m <= MAX_MASSSTAB_FUER_DATEN * 1.03) {
+    knopf.disabled = false;
+    hinweis.textContent = 'Lädt die eingeschalteten Gruppen für den sichtbaren Ausschnitt. Später eingeschaltete Gruppen werden automatisch nachgeladen.';
+  } else {
+    knopf.disabled = true;
+    hinweis.textContent = 'Zum Laden auf 1 : 5.000 oder näher heranzoomen.';
+  }
+}
+karte.on('moveend', anzeigeAktualisieren);
+karte.on('load', anzeigeAktualisieren);
+anzeigeAktualisieren();
+
+/* ---------- Ortssuche ----------
+   1. Wahl: Nominatim (Suchdienst von OpenStreetMap)
+   2. Wahl: Photon (ebenfalls OpenStreetMap-Daten) */
+const suchfeld = document.getElementById('suche');
+const trefferListe = document.getElementById('treffer');
+let suchTimer = null;
+
+suchfeld.addEventListener('input', () => {
+  clearTimeout(suchTimer);
+  const text = suchfeld.value.trim();
+  if (text.length < 3) { trefferListe.style.display = 'none'; return; }
+  suchTimer = setTimeout(() => suchen(text), 500);
+});
+suchfeld.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { clearTimeout(suchTimer); suchen(suchfeld.value.trim()); }
+});
+
+async function sucheNominatim(text) {
+  const url = 'https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=de&limit=6&accept-language=de&q=' + encodeURIComponent(text);
+  const antwort = await fetch(url);
+  if (!antwort.ok) throw new Error('Nominatim ' + antwort.status);
+  const daten = await antwort.json();
+  return daten.map(e => {
+    const teile = e.display_name.split(', ');
+    const bb = e.boundingbox.map(Number); // [süd, nord, west, ost]
+    return { titel: teile[0], zusatz: teile.slice(1, 4).join(', '),
+             box: [[bb[2], bb[0]], [bb[3], bb[1]]], lat: Number(e.lat) };
+  });
+}
+async function suchePhoton(text) {
+  const url = 'https://photon.komoot.io/api/?limit=6&lang=de&bbox=5.8,47.2,15.1,55.1&q=' + encodeURIComponent(text);
+  const antwort = await fetch(url);
+  if (!antwort.ok) throw new Error('Photon ' + antwort.status);
+  const daten = await antwort.json();
+  return daten.features.map(f => {
+    const p = f.properties, [lon, lat] = f.geometry.coordinates;
+    const box = p.extent ? [[p.extent[0], p.extent[3]], [p.extent[2], p.extent[1]]]
+                         : [[lon - 0.002, lat - 0.002], [lon + 0.002, lat + 0.002]];
+    const titel = p.name || [p.street, p.housenumber].filter(Boolean).join(' ');
+    return { titel, zusatz: [p.postcode, p.city, p.state].filter(Boolean).join(', '), box, lat };
+  });
+}
+
+async function suchen(text) {
+  if (!text) return;
+  let ergebnisse = null;
+  try {
+    ergebnisse = await sucheNominatim(text);
+    status('st-suche', 'Suche: funktioniert (Nominatim) ✓', 'ok');
+  } catch (e1) {
+    try {
+      ergebnisse = await suchePhoton(text);
+      status('st-suche', 'Suche: funktioniert (Photon) ✓', 'ok');
+    } catch (e2) {
+      status('st-suche', 'Suche: kein Suchdienst erreichbar', 'fehler');
+      meldung('Suche gerade nicht erreichbar – bitte Internetverbindung prüfen.');
+      return;
+    }
+  }
+  zeigeTreffer(ergebnisse);
+}
+
+function zeigeTreffer(ergebnisse) {
+  trefferListe.innerHTML = '';
+  if (!ergebnisse.length) trefferListe.innerHTML = '<li>Nichts gefunden</li>';
+  ergebnisse.forEach(e => {
+    const li = document.createElement('li');
+    li.textContent = e.titel;
+    const klein = document.createElement('span');
+    klein.className = 'klein'; klein.textContent = e.zusatz;
+    li.appendChild(klein);
+    li.addEventListener('click', () => {
+      datenVerwerfen();   // neuer Ort -> alte Daten weg
+      karte.fitBounds(e.box, { padding: 40, maxZoom: zoomFuerMassstab(2500, e.lat), duration: 1200 });
+      trefferListe.style.display = 'none';
+      suchfeld.value = e.titel;
+    });
+    trefferListe.appendChild(li);
+  });
+  trefferListe.style.display = 'block';
+}
+
+/* ---------- Standort-Figur ----------
+   Die rote Maßstabsfigur wohnt in einem kleinen Haus oben auf der Karte.
+   Aus dem Haus auf die Karte ziehen: dort bleibt sie stehen und die Karte zoomt auf 1 : 5.000.
+   Auf der Karte kann man sie weiterziehen (Karte zoomt neu) oder entfernen: zurück ins Haus ziehen oder doppelklicken.
+   Es gibt nur eine Figur. */
+const FIGUR_MASSSTAB = 5000;
+const fach = document.getElementById('figurfach');
+const ziehbild = document.getElementById('figur-ziehen');
+let figurMarker = null;
+
+function figurAbsetzen(lngLat) {
+  // Liegt der neue Standort außerhalb der geladenen Daten? -> alte Daten verwerfen (wie bei der Ortssuche)
+  if (geladenerAusschnitt) {
+    const [s, w, n, o] = geladenerAusschnitt.split(',').map(Number);
+    if (lngLat.lat < s || lngLat.lat > n || lngLat.lng < w || lngLat.lng > o) datenVerwerfen();
+  }
+  if (!figurMarker) {
+    const el = document.createElement('div');
+    el.className = 'figur';
+    el.title = 'Standort – ziehen zum Verschieben; zum Entfernen zurück ins Haus ziehen oder doppelklicken';
+    el.addEventListener('dblclick', e => { e.stopPropagation(); e.preventDefault(); figurInsHaus(); });
+    el.innerHTML = ziehbild.innerHTML;
+    // Eigenes Ziehen statt des MapLibre-Ziehens, damit man die Figur auch über das Haus (außerhalb der Karte) ziehen kann
+    el.addEventListener('mousedown', e => e.stopPropagation());
+    el.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+    el.addEventListener('pointerdown', e => ziehen(e, el));
+    figurMarker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(lngLat).addTo(karte);
+  } else {
+    figurMarker.setLngLat(lngLat);
+  }
+  fach.classList.add('leer');
+  karte.flyTo({ center: lngLat, zoom: zoomFuerMassstab(FIGUR_MASSSTAB, lngLat.lat), duration: 2200, essential: true });
+}
+
+function figurInsHaus() {
+  if (figurMarker) { figurMarker.remove(); figurMarker = null; }
+  fach.classList.remove('leer');
+}
+
+// Wo ist der Zeiger gerade? 'haus', 'karte' oder null (Seitenleiste, Knöpfe …)
+function zielUnter(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (el && el.closest('#figurfach')) return 'haus';
+  const r = karte.getContainer().getBoundingClientRect();
+  const drin = x >= r.left && y >= r.top && x <= r.right && y <= r.bottom;
+  if (drin && !(el && el.closest('#panel, #kartenknoepfe, #legende, .maplibregl-ctrl'))) return 'karte';
+  return null;
+}
+
+// Ziehen mit Maus, Stift oder Finger – aus dem Haus (quelle = fach) oder von der Karte (quelle = Figur)
+function ziehen(ev, quelle) {
+  const ausHaus = quelle === fach;
+  if (ausHaus && fach.classList.contains('leer')) return;   // Haus ist leer, Figur steht auf der Karte
+  ev.preventDefault(); ev.stopPropagation();
+  quelle.setPointerCapture(ev.pointerId);
+  document.body.classList.add('figur-zieht');
+  if (!ausHaus) quelle.classList.add('unterwegs');
+  else fach.classList.add('leer');
+  const folgen = e => {   // Füße der Figur sitzen genau unter dem Zeiger
+    ziehbild.style.left = (e.clientX - 11) + 'px';
+    ziehbild.style.top = (e.clientY - 53) + 'px';
+    fach.classList.toggle('ziel', !ausHaus && zielUnter(e.clientX, e.clientY) === 'haus');
+  };
+  folgen(ev);
+  ziehbild.style.display = 'block';
+  const x0 = ev.clientX, y0 = ev.clientY;
+  const loslassen = e => {
+    quelle.removeEventListener('pointermove', folgen);
+    quelle.removeEventListener('pointerup', loslassen);
+    quelle.removeEventListener('pointercancel', loslassen);
+    ziehbild.style.display = 'none';
+    document.body.classList.remove('figur-zieht');
+    fach.classList.remove('ziel');
+    quelle.classList.remove('unterwegs');
+    // Figur auf der Karte nur angeklickt (kaum bewegt)? -> stehen lassen, nicht neu zoomen (wichtig für den Doppelklick)
+    if (!ausHaus && Math.hypot(e.clientX - x0, e.clientY - y0) < 5) return;
+    const ziel = e.type === 'pointercancel' ? null : zielUnter(e.clientX, e.clientY);
+    if (ziel === 'haus') { figurInsHaus(); return; }
+    if (ziel === 'karte') {
+      const r = karte.getContainer().getBoundingClientRect();
+      figurAbsetzen(karte.unproject([e.clientX - r.left, e.clientY - r.top]));
+      return;
+    }
+    // weder Karte noch Haus: Figur geht dorthin zurück, wo sie herkam
+    if (ausHaus) { fach.classList.remove('leer'); meldung('Figur auf die Karte ziehen, um dorthin zu zoomen.'); }
+  };
+  quelle.addEventListener('pointermove', folgen);
+  quelle.addEventListener('pointerup', loslassen);
+  quelle.addEventListener('pointercancel', loslassen);
+}
+fach.addEventListener('pointerdown', e => ziehen(e, fach));
+
+/* ---------- Knöpfe & Meldungen ---------- */
+document.getElementById('laden').addEventListener('click', datenLaden);
+
+document.getElementById('klappknopf').addEventListener('click', () => {
+  document.getElementById('panel').classList.toggle('zu');
+  setTimeout(() => karte.resize(), 300);
+});
+
+let meldungTimer = null;
+function meldung(text) {
+  const m = document.getElementById('meldung');
+  m.textContent = text;
+  m.style.display = 'block';
+  clearTimeout(meldungTimer);
+  meldungTimer = setTimeout(() => m.style.display = 'none', Math.min(9000, Math.max(3500, text.length * 50)));
+}
+
+} // Ende von start()
+</script>
+</body>
+</html>

@@ -1,40 +1,70 @@
-# Konzeptblatt – Standortanalyse-App (Arbeitstitel folgt)
+# Konzeptblatt – LOCUS. Standortanalyse
 
-Stand: 17.11.2026, 16:55 – Schritte 1–7 gebaut, Schritt 7 (PDF-Export) noch nicht mit echten Daten getestet
-**Aktuelle Datei im Projekt: `claude/standortanalyse_zwischenstand_2026-11-17.html`**
-(ältere Datei `claude/standortanalyse_zwischenstand_2026-11-16.html` ist überholt)
+Stand: 18.11.2026, 15:00 – Schritte 1–7 fertig und getestet; Swiss Style, Startseite mit Globus-Zoom, Standort-Figur, Demo-Version
+**Aktuelle Dateien im Projekt:**
+- `claude/LOCUS_stand_2026-11-18.html` – die App
+- `claude/LOCUS_demo.html` – Demo mit Anleitung (Vorführmodus)
+(ältere Dateien `standortanalyse_zwischenstand_2026-11-16/17.html` sind überholt)
 
-## Morgen weitermachen – hier ansetzen
-1. Datei `standortanalyse_zwischenstand_2026-11-17.html` herunterladen und im Browser öffnen (Safari/Firefox).
-2. **PDF-Export testen:** Ausschnitt laden (1:2.500) → Layer einschalten → Abschnitt „PDF-Export“: Format, hoch/quer, Maßstab, Titel → „Rahmen auf der Karte zeigen“ → ggf. „Daten für den Rahmen laden“ → „PDF erstellen“.
-   - Prüfen: Wird ein PDF heruntergeladen? Sieht es gut aus? Maßstab stimmt? (bei 1:2.500 muss die 100-m-Leiste 4 cm lang sein)
-   - A4/A3 zuerst, dann A2/A1 (große Formate brauchen 10–30 s).
-3. Danach Schritt 8: Feinschliff, Tablet-Test, Name der App.
+## Nächstes Mal weitermachen – hier ansetzen
+1. Dateien herunterladen und im Browser öffnen (Safari/Firefox).
+2. **Demo testen** (mit echten Daten noch nicht ausprobiert): alle 12 Schritte selbst machen und einmal nur mit „Zeig’s mir“.
+3. Offen aus Schritt 8:
+   - **Tablet-Test** (iPad: Seitenleiste, Layer, Figur mit dem Finger ziehen, PDF, Demo)
+   - **Fußzeile der Startseite:** Platzhalter „Studienprojekt Architektur · 2026“ ersetzen (Namen, Hochschule, Semester)
+   - Einleitungssatz der Startseite ggf. anpassen
+   - Offene Frage: Soll die Standort-Figur auch im PDF erscheinen (als Standortmarkierung)?
+4. Optional, noch nicht entschieden: „Ausschnitt speichern/öffnen“, Online stellen über GitHub Pages, Daten vorbereiten über GitHub Actions.
 
-## Grundprinzip (gilt im aktuellen Stand)
+## Demo-Version (`LOCUS_demo.html`)
+- Eigene Datei, startet direkt mit der Anleitung; sonst identisch mit der App (Startseite zeigt „Standortanalyse · Demo“)
+- Zuschauer machen jeden Schritt selbst; die Stelle ist rot markiert (pulsierender Rahmen); „Zeig’s mir“ erledigt den Schritt automatisch; erledigte Schritte gehen nach ca. 1 s von allein weiter; „Überspringen“ jederzeit, „×“ beendet die Demo
+- Daten werden **live** geladen (ca. 20–30 s, Server können überlastet sein)
+- Beispielort für „Zeig’s mir“: Berlin, Prenzlauer Berg (Kollwitzplatz)
+- 12 Schritte: 01 Willkommen / „Los geht’s“ · 02 Figur auf die Karte ziehen · 03 Maßstab 1:2.500 · 04 Layer Mobilität + Grün einschalten · 05 Daten laden · 06 Nutzungen dazunehmen (lädt automatisch nach) · 07 Etwas anklicken (Info-Fenster) · 08 Legende · 09 PDF vorbereiten (A4 quer, 1:2.500, Rahmen) · 10 PDF erstellen · 11 Figur zurück ins Haus · 12 Fertig (Nochmal / Demo beenden)
+- Wird per Skript aus der App erzeugt (Hauptdatei + Anleitungsteil); nach Änderungen an der App die Demo neu erzeugen, damit beide gleich bleiben
+
+## Name & Gestaltung
+- Name: **LOCUS.** (roter Punkt)
+- Swiss Style: Helvetica, Schwarz/Weiß, dünne Linien, Rot #e2001a nur als Akzent, keine runden Ecken, nummerierte Abschnitte (rote Nummern)
+- **Startseite:** 12-Spalten-Raster, großes „LOCUS.“, Einleitungssatz, drei Spalten 01 Mobilität / 02 Grün / 03 Nutzungen, Knopf „Los geht’s →“; rechts ein **sich drehender Globus mit Deutschland in Rot**.
+- **Übergang Startseite → Karte (4 s):** Texte blenden aus, Globus dreht Deutschland nach vorne, zoomt bildfüllend heran, bis Deutschland so groß ist wie auf der Karte dahinter (Rot wird heller, rote Kontur bleibt), dann Überblenden in die Karte.
+- **Zurück (Klick auf das Logo, 2 s):** Globus erscheint groß über der Karte und zoomt wieder heraus, Texte blenden ein.
+- Ohne Globus (kein Internet) oder bei „Bewegung reduzieren“ im System: einfaches Überblenden.
+- Seitenleiste: 01 Ort · 02 Maßstab · 03 Layer · 04 Daten · 05 Grundkarte · 06 PDF-Export · 07 Status
+- Oben auf der Karte: „☰“ (Seitenleiste), „Legende“ (ein/aus, wird im Browser gemerkt) und das **Haus mit der Standort-Figur**
+
+## Standort-Figur
+- Rote Maßstabsfigur, wohnt in einem kleinen Haus (Giebeldach), das genau so hoch ist wie die Knöpfe
+- Aus dem Haus auf die Karte ziehen → Figur bleibt dort stehen, Karte fliegt auf **1 : 5.000** heran (Daten direkt ladbar)
+- Auf der Karte weiterziehen → Karte zoomt auf den neuen Punkt; einfacher Klick bewirkt nichts
+- Entfernen: zurück ins Haus ziehen (Haus wird rot umrandet, sobald die Figur darüber schwebt) oder Doppelklick
+- Außerhalb der geladenen Daten abgesetzt → alte Daten werden verworfen (wie bei der Ortssuche)
+- Funktioniert mit Maus, Stift und Finger (Tablet)
+- Erscheint bisher nicht im PDF
+
+## Grundprinzip
 - Funktioniert für alle Orte in Deutschland, Daten live aus OpenStreetMap über Overpass (Internet nötig)
-- Ladezeit je nach Serverauslastung ca. 1–2 Minuten (bei 1:2.500)
-- Stadtwahl per Suchfeld und/oder freiem Zoomen/Verschieben; neuer Ort/Ausschnitt → alte Daten werden verworfen
-- Daten per Knopf „Daten für diesen Ausschnitt laden“; bei Fehlern „Fehlende Daten nachladen“ (holt nur Fehlendes)
-- Oberfläche auf Deutsch, für Laptop/Beamer und Tablet
-- Layer-Menü: Hauptgruppen aufklappbar, Gruppenschalter „alle an/aus“ + Einzelschalter je Unterkategorie
-- Anzahl gefundener Objekte neben jedem Layer; Legende unten rechts (nur aktive Layer)
-- Straßennamen der Grundkarte ausschaltbar
-- Info-Fenster beim Anklicken: Kategorie, Name, Art, Adresse, Öffnungszeiten, bei Haltestellen die Linien (Bus/S-Bahn), Link zu OSM
+- **Ladezeit ca. 20–25 s für alle drei Gruppen** bei 1:2.500 (vorher 1–2 min)
+- Erst Layer einschalten, dann „Daten für diesen Ausschnitt laden“ – geladen wird nur, was eingeschaltet ist; später eingeschaltete Gruppen werden automatisch nachgeladen
+- Neuer Ort/Ausschnitt → alte Daten werden verworfen; bei Fehlern „Fehlende Daten nachladen“
+- Info-Fenster beim Anklicken: Kategorie, Name, Art, Adresse, Öffnungszeiten, Linien an Haltestellen, Link zu OSM; „vermutete“ Wohnhäuser sind gekennzeichnet
 
 ## Maßstab & PDF-Export
-- Bildschirm: feste Stufen 1:500 / 1:1.000 / 1:2.000 / 1:2.500 / 1:5.000 (Bildschirm-Maßstab nur ungefähr, 96 dpi)
-- PDF-Export (Schritt 7): Formate A4–A1, hoch/quer, Maßstab 1:500–1:5.000, Titel frei
-  - Rahmen in Blattgröße in der Kartenmitte, Karte darunter verschieben
-  - Blatt: Karte im exakten Maßstab, Titel, Legende (passt sich an: mehr Spalten/kleinere Schrift), Nordpfeil, Maßstabsleiste, „M 1:x“, Format, Datum, Quelle „© OpenStreetMap-Mitwirkende (ODbL) · Grundkarte OpenFreeMap, © OpenMapTiles“
-  - Auflösung Kartenbild: A4/A3 200 dpi, A2 150 dpi, A1 120 dpi
-  - PDF-Bibliothek jsPDF 2.5.1 (wird beim ersten Export aus dem Internet geladen)
+- Bildschirm: feste Stufen 1:500 / 1:1.000 / 1:2.000 / 1:2.500 / 1:5.000 (nur ungefähr, 96 dpi)
+- PDF: A4–A1, hoch/quer, 1:500–1:5.000, Titel frei; roter Rahmen auf der Karte zeigt den Blattausschnitt
+- Karte im exakten Maßstab (A4/A3 200 dpi, A2 150, A1 120); mit echten Daten getestet (A3 quer) ✓
+- **Blatt im Swiss Style:** quer = Spalte rechts, hoch = Leiste unten
+  - Kopf: „LOCUS.“ klein mit rotem Punkt, Titel groß, kräftige Linie
+  - Legende klein, passt sich an, Gruppenüberschriften grau in Versalien, nie allein am Spaltenende
+  - Plankopf: architektonisches Nordzeichen (Kreis mit Fadenkreuz, Balken nach Norden, „N“ nicht fett), schlichte Maßstabsleiste, „M 1 : x“ nicht fett auf Höhe des N; darunter FORMAT / STAND / QUELLE
+- Dateiname: `LOCUS_<Titel>_<Format>_1-<Maßstab>.pdf`
 
-## Layer (aktueller Stand = Version OHNE „Punkt 1“, bewusst so gewählt)
-**Mobilität:** Buslinien #e3c46b · Bushaltestellen #c9a43a · Fern-/Regionalbahn #9e3128 · S-Bahn #c4473a · U-Bahn #d26a55 · Straßenbahn #de9378 · Bahnhöfe/Haltestellen #7f2820 · Hauptverkehrsstraßen #6a8caf · Parkplätze #a9bfd6 · Radwege #cf7fb0 · Fußwege #efc6df
-- Linien liegen nebeneinander (Auto Mitte, Rad daneben, Bus außen; Gleise Mitte, S-Bahn daneben)
+## Layer (Version OHNE „Punkt 1“, bewusst so gewählt)
+**Mobilität:** Buslinien #e3c46b (mit vollständigen Linieninfos) · Bushaltestellen #c9a43a · Fern-/Regionalbahn #9e3128 · S-Bahn #c4473a · U-Bahn #d26a55 · Straßenbahn #de9378 · Bahnhöfe/Haltestellen #7f2820 · Hauptverkehrsstraßen #6a8caf · Parkplätze #a9bfd6 · Radwege #cf7fb0 · Fußwege #efc6df
+- Linien liegen nebeneinander wie in einem Netzplan
 
-**Grün:** Spielplätze #bccb72 · Private Grünflächen #cbd8c2 · Öffentliche Grünflächen #94b98a (Parks, Rasen, Wiesen, Friedhöfe, Wald) · Aufenthaltsflächen #93c2ae (inkl. Bänke) · Bäume #557d4f
+**Grün:** Spielplätze #bccb72 · Private Grünflächen #cbd8c2 · Öffentliche Grünflächen #94b98a · Aufenthaltsflächen #93c2ae (inkl. Bänke) · Bäume #557d4f
 
 **Nutzungen (nur Gebäude werden eingefärbt):**
 - Gesundheit: Krankenhäuser #a9383d · Zahnärzte #f5ccc6 · Fachärzte #ec9d93 · Allgemeinärzte #d9625f · Apotheken #c0517a
@@ -42,23 +72,30 @@ Stand: 17.11.2026, 16:55 – Schritte 1–7 gebaut, Schritt 7 (PDF-Export) noch 
 - Freizeit: Gastronomie #e9c24f · Kultur #cf9532 · Sport #f3e2a2 (Sportplätze als Fläche mit Kontur #c8a94e) · Bars & Nachtleben #a8913f
 - Bildung: Kitas #dcd0ec · Grundschulen #b49fdc · Weiterführende Schulen #8a6dc0 · Hochschulen #5c4795 · Bibliotheken #b083b8
 - Wohnen #f2b37a: ausdrücklich als Wohnhaus eingetragen + Gebäude ohne Nutzung im Wohngebiet
-- Regeln: Punkt im Gebäude → Gebäude; Punkt bis 20 m neben Gebäude → nächstes Gebäude; Fläche (z. B. Schulgelände) → alle Gebäude darauf; Gebäude ohne bekannte Nutzung bleiben grau
+- Regeln: Punkt im Gebäude → Gebäude; Punkt bis 20 m daneben → nächstes Gebäude; Fläche → alle Gebäude darauf; Gebäude ohne bekannte Nutzung bleiben grau
 
 ## Technik
 - Eine HTML-Datei, per Doppelklick im Browser (getestet: Firefox/Windows, Safari/Mac)
-- MapLibre GL 4.7.1; Grundkarte OpenFreeMap Positron (Notfall Esri Light Gray)
-- Suche: Nominatim, Ersatz Photon
-- Overpass: Hauptserver overpass-api.de, Ersatz mail.ru / private.coffee / kumi.systems; max. 2 Abfragen gleichzeitig; bei „zu viele Anfragen“ (429) 20/40 s warten und denselben Server erneut fragen; App merkt sich zuletzt funktionierende Server
+- MapLibre GL 4.7.1; Grundkarte OpenFreeMap Positron (Notfall Esri Light Gray); Suche Nominatim, Ersatz Photon; jsPDF 2.5.1; d3 v7 + world-atlas für den Globus
+- **Laden:** eine Abfrage für alle eingeschalteten Gruppen; „Wettlauf“ overpass-api.de gegen maps.mail.ru, erste Antwort gewinnt; abgewiesener Server nach 3 s (bei 429 nach 10 s) erneut, max. 5 Versuche; Zeitlimit 120 s pro Versuch, 180 s gesamt; danach private.coffee und kumi.systems je einmal
+- Gebäudeumrisse ohne Merkmale („skel“) → weniger Daten
 - Statusanzeige + Ladeprotokoll in der Seitenleiste
 
-## Entscheidungen & Erkenntnisse (Verlauf)
-- CARTO-Karten verlangen bei lokalen Dateien einen API-Schlüssel → nicht nutzbar
-- Bei Claude veröffentlichte Link-Seiten können keine externen Kartendaten laden → HTML-Datei
-- Schnelle Variante „Nutzungen aus der Grundkarte“ (OpenFreeMap-Kacheln) getestet und **verworfen**: Nutzungen fehlerhaft (u. a. ganze Häuserblöcke als Ärzte, weil die Grundkarte vielen Gebäuden dieselbe Kennung gibt). Ein Fix wurde gebaut, das Team bleibt aber bei der Overpass-Version.
-- „Punkt 1“ (Ärzte zusammengefasst, Krankenhäuser extra, ohne Bänke/private Gärten) wurde gebaut, das Team hat sich am 17.11. bewusst für die Version **ohne** Punkt 1 entschieden.
-- Eigene Datenkacheln (PMTiles) verworfen: kein Rechner mit 16 GB RAM, keine Zeit für Einrichtung.
-- Offene Idee für mehr Tempo: **GitHub Actions** bereitet OSM-Daten wöchentlich automatisch auf, App liegt auf GitHub Pages (Link). Team hat GitHub-Konto; geht auch ohne Claude-Zugriff (Dateien hochladen + Klicks). Noch nicht entschieden („erstmal noch nicht“).
-- Weitere geprüfte Quellen verworfen: ohsome-API (v1 wird am 30.11.2026 abgeschaltet, v2 braucht API-Schlüssel), Google Places (kostenpflichtig/Lizenz), Open Data der Städte (uneinheitlich).
+## Erkenntnisse aus den Ladetests (18.11.)
+- Engpass sind Warteschlangen und Abweisungen der Server – nicht Datenmenge oder JavaScript
+- Wirksamste Maßnahme: zwei Server im Wettlauf + schnelle Neuversuche (→ ca. 22 s)
+- Aufteilen in Kacheln macht es langsamer
+- Schlanke Buslinien sparen 96 % Daten, aber keine Zeit → volle Linieninfos bleiben
+
+## Entscheidungen (Verlauf)
+- CARTO-Karten brauchen bei lokalen Dateien einen API-Schlüssel → nicht nutzbar
+- Bei Claude veröffentlichte Seiten können keine externen Kartendaten laden → HTML-Datei
+- Schnelle Variante „Nutzungen aus der Grundkarte“ und Mischform verworfen → Overpass-Version bleibt
+- „Punkt 1“ verworfen → Version ohne Punkt 1
+- PMTiles, ohsome, Google Places, städtische Open Data verworfen
+- Globus-Übergang: Variante „Globus zoomt, Karte blendet ein“ statt MapLibre-5-Globus (geringeres Risiko)
+- Standort-Figur: eigene rote Maßstabsfigur (kein Nachbau des Street-View-Männchens), Zoom auf 1:5.000
+- Demo: eigene Datei, „selbst machen mit Hilfe“, Daten live
 
 ## Fahrplan
 1. ✅ Kartengerüst: Karte, Suche, Maßstab
@@ -67,9 +104,9 @@ Stand: 17.11.2026, 16:55 – Schritte 1–7 gebaut, Schritt 7 (PDF-Export) noch 
 4. ✅ Mobilität
 5. ✅ Nutzungen
 6. ✅ Info beim Anklicken
-7. 🔧 PDF-Export im Maßstab – gebaut, **Test mit echten Daten steht aus**
-8. Feinschliff, Tablet-Test, Namensgebung
-9. (optional) Online stellen über GitHub Pages / schnellere Daten über GitHub Actions
+7. ✅ PDF-Export im Maßstab (getestet)
+8. 🔧 Feinschliff: ✅ Ladeumbau · ✅ Legenden-Knopf · ✅ Name LOCUS · ✅ Swiss Style · ✅ Startseite mit Globus · ✅ PDF-Layout/Nordzeichen · ✅ Globus-Zoom-Übergang · ✅ Standort-Figur · ✅ Demo-Version (Test mit echten Daten offen) · offen: Tablet-Test, Fußzeile/Einleitungstext
+9. (optional) Online stellen über GitHub Pages / Daten über GitHub Actions
 
 ## Arbeitsweise
-Schrittweise, nach jedem Schritt kurze Pause zum Nachvollziehen und Feedback.
+Schrittweise, erst fragen, erst planen und testen, dann einbauen; nach jedem Schritt Pause für Feedback.
