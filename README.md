@@ -1,11 +1,13 @@
 # LOCUS. – Standortanalyse für jeden Ort in Deutschland
 
+![LOCUS – Defizitanalyse am Burgplatz in Braunschweig](screenshot.png)
+
 **LOCUS** zeigt für jeden Ort in Deutschland, wie er angebunden ist, wo es grün ist und wie die Gebäude genutzt werden – Layer für Layer, im Maßstab. Und macht sichtbar, wo es Defizite gibt.
 
-- **App:** `index.html` (Adresse dieser Website)
-- **Demo mit Anleitung:** `demo.html` – Braunschweig, Burgplatz, Schritt für Schritt zum Ausprobieren
+- **App:** https://jade-hs-vibecoding-wpk.github.io/locus/
+- **Demo mit Anleitung:** https://jade-hs-vibecoding-wpk.github.io/locus/demo.html – Braunschweig, Burgplatz, Schritt für Schritt zum Ausprobieren
 
-Studienprojekt Architektur · 2026
+Ein Projekt von **Bethje Blesse** und **Anastasia Müller** · Studienprojekt Architektur · WPK Vibecoding · Jade Hochschule Wilhelmshaven/Oldenburg/Elsfleth · 2026
 
 ---
 
@@ -26,6 +28,16 @@ Weitere Funktionen:
 - eigenes **PDF-Blatt „Defizitanalyse“** mit Umkreiskarte, Legende und Steckbrief
 - Info-Fenster beim Anklicken (Name, Adresse, Öffnungszeiten, Linien an Haltestellen, Link zu OpenStreetMap)
 - Kartenbeschriftung auf Deutsch
+
+## Installation
+
+**Keine Installation nötig.** LOCUS ist eine einzige HTML-Datei und läuft in jedem aktuellen Browser (getestet: Safari auf dem Mac, Firefox unter Windows).
+
+- **Online:** https://jade-hs-vibecoding-wpk.github.io/locus/ öffnen – fertig.
+- **Lokal:** `index.html` herunterladen und per Doppelklick im Browser öffnen. Eine Internetverbindung ist trotzdem nötig, weil Karte, Daten und Bibliotheken live geladen werden.
+- **Eigene Kopie im Netz:** Repository forken, `index.html` behalten und unter *Settings → Pages* „Deploy from a branch“ → `main` / `(root)` einschalten.
+
+Es werden **keine API-Keys** und keine Anmeldung gebraucht; alle genutzten Dienste sind frei zugänglich.
 
 ## So benutzt ihr LOCUS
 
@@ -65,6 +77,32 @@ Die Prozentgrenzen der Ampeln (gut / mittel / Defizit) sind eigene Setzungen auf
 | `index.html` | die App (eine einzige Datei, läuft im Browser) |
 | `demo.html` | Demo mit Anleitung und fest eingebauten Daten für Braunschweig, Burgplatz |
 | `README.md` | diese Beschreibung |
+| `screenshot.png` | Bildschirmfoto für README und Projekt-Straße |
+| `LICENSE` | Lizenz des Codes (Apache 2.0) |
+| weitere Dateien | Zwischenstände der Entwicklung (siehe unten) |
+
+## Entwicklungsverlauf
+
+Die fertige App ist **`index.html`**, die Demo **`demo.html`**. Die übrigen Dateien im Repository sind ältere Zwischenstände. Sie bleiben bewusst erhalten, damit der Arbeitsprozess nachvollziehbar ist:
+
+| Datei | Inhalt |
+|---|---|
+| `standortanalyse.html` | erster lauffähiger Stand (16.11.2026): Karte, Suche, Maßstab, erste Layer |
+| `standortanalyse_zwischenstand_….html` | Zwischenstand (17.11.2026): alle drei Layer-Gruppen, Info beim Anklicken, PDF-Export im Aufbau |
+| `LOCUS_stand_2026-11-18.html` | Stand 18.11.2026: Name LOCUS, Swiss Style, Startseite mit Globus, schnelleres Laden, PDF im Maßstab |
+| `LOCUS_demo.html` | erste Demo-Version mit Anleitung (Köln, Belgisches Viertel) – ersetzt durch `demo.html` (Braunschweig) |
+| `Konzeptblatt_Standortanalyse_App.md` | Konzeptblatt mit Entscheidungen, Farbkonzept, Testergebnissen und Fahrplan |
+
+Jeder Upload ist außerdem im Versionsverlauf von GitHub gespeichert (Uhr-Symbol „History“ über der Dateiliste).
+
+## KI-Nutzung
+
+LOCUS wurde mit **Claude** (Anthropic, Modell Claude Opus 5.5) im Chat entwickelt. Die Aufteilung:
+
+- **Team:** Idee und Konzept, Auswahl der Themen und Layer, Farbkonzept, Gestaltung (Swiss Style, Startseite, Plankopf, Standort-Figur), alle inhaltlichen Entscheidungen (z. B. Richtwerte, Bezeichnungen, Demo-Ort), Testen im eigenen Browser und Rückmeldung nach jedem Schritt, Einrichtung von GitHub Pages.
+- **Claude:** den gesamten Programmcode geschrieben, Varianten vorgeschlagen und nach Rückmeldung überarbeitet, Lade- und Funktionstests in einem Testbrowser durchgeführt, Richtwerte, Lizenzen und Dienste recherchiert (mit Quellenangabe), README- und Beschreibungstexte entworfen, QR-Codes erzeugt.
+
+Gearbeitet wurde schrittweise: erst Fragen klären, dann planen und testen, dann einbauen – nach jedem Schritt eine Pause für Test und Feedback. Alle Ergebnisse wurden vom Team im Browser geprüft. Die Richtwerte der Defizitanalyse stammen aus den oben genannten Quellen; die Ampelgrenzen sind eigene Setzungen.
 
 ---
 
@@ -96,3 +134,7 @@ Schrift: Helvetica Neue / Helvetica / Arial des eigenen Systems (keine Web-Schri
 
 **Quellenangabe auf Karte und PDF:**
 Kartendaten © OpenStreetMap-Mitwirkende (ODbL) · Grundkarte: OpenFreeMap, © OpenMapTiles
+
+---
+
+© 2026 Bethje Blesse und Anastasia Müller · Studienprojekt an der Jade Hochschule. Der Code steht unter der **Apache License 2.0** (siehe `LICENSE`). Kartendaten © OpenStreetMap-Mitwirkende (ODbL).
